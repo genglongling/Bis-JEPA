@@ -270,10 +270,10 @@ class BisimModel(nn.Module):
         Returns: (b,) transition distance
         """
         b, t, p, d = next_z_bisim.shape
-        z1_flat = next_z_bisim.reshape(b, t, p * d)  # (b, t, D)
-        z2_flat = next_z_bisim2.reshape(b, t, p * d)  # (b, t, D)
+        z1_pooled = next_z_bisim.mean(dim=2)   # (b, t, d)
+        z2_pooled = next_z_bisim2.mean(dim=2)  # (b, t, d)
 
-        diff = z1_flat - z2_flat  # (b, t, D)
+        diff = z1_pooled - z2_pooled  # (b, t, d)
         squared_diff = diff.pow(2).sum(dim=-1)  # (b, t)
         # average over time
         distances = squared_diff.mean(dim=-1)  # (b,)
@@ -284,15 +284,15 @@ class BisimModel(nn.Module):
                                           var_target: float = 1.0,
                                           eps: float = 1e-6):
         """
-        Covariance regularization.
-        Operates on flattened bisim encodings (p * d) features per sample
+        Per-patch covariance regularization.
+        Computes a (d x d) covariance matrix per patch and averages across patches.
+        This is well-conditioned: N=2*b*t samples for d features (e.g., 240 samples for 32 features).
+
         Args:
             z_bisim:        (b, t, p, d)
             next_z_bisim:   (b, t, p, d)
             var_target:     target variance for diagonal
             eps:            numerical stability
-            offdiag_coef:   weight for off-diagonal penalty
-            diag_coef:      weight for diagonal target penalty
 
         Returns:
             cov_reg: (b,) tensor broadcast per batch element
@@ -301,34 +301,33 @@ class BisimModel(nn.Module):
             f"expected (b,t,p,d); got {z_bisim.shape} and {next_z_bisim.shape}"
 
         b, t, p, d = z_bisim.shape
-        feature_dim = p * d
 
-        # (b, t, p, d) -> (b, t, p*d)
-        z_flat = z_bisim.reshape(b, t, feature_dim)
-        next_z_flat = next_z_bisim.reshape(b, t, feature_dim)
+        # (2b, t, p, d) -> (2bt, p, d)
+        Z_all = torch.cat([z_bisim, next_z_bisim], dim=0)  # (2b, t, p, d)
+        Z_flat = Z_all.reshape(-1, p, d)  # (N, p, d) where N = 2*b*t
+        N = Z_flat.shape[0]
 
-        # (2*b, t, p*d) -> (2*b*t, p*d)
-        Z = torch.cat([z_flat, next_z_flat], dim=0).reshape(-1, feature_dim)
+        # center per-patch: (N, p, d) - mean over N -> (1, p, d)
+        Zc = Z_flat - Z_flat.mean(dim=0, keepdim=True)  # (N, p, d)
 
-        # center the data
-        Zc = Z - Z.mean(dim=0, keepdim=True)
-
-        # compute covariance matrix (feature_dim × feature_dim)
-        N = Zc.shape[0]
+        # per-patch covariance: (p, d, d) via batched matmul
+        # Zc transposed: (p, d, N) @ (p, N, d) -> (p, d, d)
+        Zc_t = Zc.permute(1, 2, 0)  # (p, d, N)
+        Zc_p = Zc.permute(1, 0, 2)  # (p, N, d)
         denom = max(N - 1, 1)
-        C = (Zc.T @ Zc) / denom
-        C = C + eps * torch.eye(feature_dim, device=C.device, dtype=C.dtype)
+        C = torch.bmm(Zc_t, Zc_p) / denom  # (p, d, d)
+        C = C + eps * torch.eye(d, device=C.device, dtype=C.dtype).unsqueeze(0)  # (p, d, d)
 
-        # loss terms
-        diag = torch.diag(C)  # (feature_dim,)
+        # diagonal: (p, d)
+        diag = torch.diagonal(C, dim1=1, dim2=2)  # (p, d)
         diag_loss = (diag - var_target).pow(2).mean()
 
-        # off-diagonal penalty: ||C||_F^2 - ||diag(C)||_2^2, normalized by count
-        frob2 = (C * C).sum()
-        diag2 = (diag * diag).sum()
-        offdiag_sum = frob2 - diag2
-        offdiag_norm = feature_dim * (feature_dim - 1)
-        offdiag_loss = offdiag_sum / max(offdiag_norm, 1)
+        # off-diagonal: ||C||_F^2 - ||diag(C)||_2^2 per patch, averaged
+        frob2 = (C * C).sum(dim=(1, 2))  # (p,)
+        diag2 = (diag * diag).sum(dim=1)  # (p,)
+        offdiag_sum = frob2 - diag2  # (p,)
+        offdiag_norm = d * (d - 1)
+        offdiag_loss = (offdiag_sum / max(offdiag_norm, 1)).mean()
 
         cov_reg = offdiag_loss + diag_loss
 
@@ -336,17 +335,17 @@ class BisimModel(nn.Module):
 
     def var_loss(self, z_bisim, var_target=0.1, epsilon=0):
         """
-        Calculate variance loss (core)
+        Calculate variance loss per-patch.
+        Computes variance across batch for each (patch, feature) independently.
         input: z_bisim: (b, t, num_patches, patch_dim)
         var_target: variance parameter
         epsilon: variance parameter
-        output: var_loss: (t)
+        output: var_loss: (t,)
         """
-        # (b, t, num_patches, patch_dim) -> (b, t, num_patches*patch_dim)
         b, t, num_patches, patch_dim = z_bisim.shape
-        z_flat = z_bisim.reshape(b, t, num_patches * patch_dim)
 
-        var = z_flat.var(dim=0)  # (t, num_patches*patch_dim)
+        # variance across batch dim for each (t, patch, feature)
+        var = z_bisim.var(dim=0)  # (t, num_patches, patch_dim)
         std = torch.sqrt(var + epsilon)
 
         # if NaN appears, fallback to using var directly
@@ -358,7 +357,8 @@ class BisimModel(nn.Module):
         # compute max(0, var_target - std)
         loss = torch.relu(var_target - std)
 
-        return loss.mean(dim=1)
+        # average over patches and patch_dim -> (t,)
+        return loss.mean(dim=(1, 2))
 
     def cal_pca(self, z_bisim):
         # (B, T, num_patches, patch_dim) -> (B*T, num_patches*patch_dim)
@@ -467,12 +467,12 @@ class BisimModel(nn.Module):
                next_z_bisim, next_z_bisim2: (b, t, num_patches, patch_dim)
         output: bisim_loss: (b, t)
         """
-        # 1. compute L2 distance per (b, t)
+        # 1. compute distance per (b, t) — pool over patches, then distance in d-dim space
         b, t, p, d = z_bisim.shape
-        z1_flat = z_bisim.reshape(b, t, p * d)  # (b, t, D)
-        z2_flat = z_bisim2.reshape(b, t, p * d)  # (b, t, D)
+        z1_pooled = z_bisim.mean(dim=2)   # (b, t, d)
+        z2_pooled = z_bisim2.mean(dim=2)  # (b, t, d)
 
-        z_dist = F.smooth_l1_loss(z1_flat, z2_flat, reduction="none").sum(dim=-1)
+        z_dist = F.smooth_l1_loss(z1_pooled, z2_pooled, reduction="none").sum(dim=-1)
 
         # 2. compute reward distance
         r_dist = torch.sum(F.smooth_l1_loss(reward, reward2, reduction="none"), dim=-1)
@@ -491,12 +491,12 @@ class BisimModel(nn.Module):
 
         # 4. compute variance loss
         if epoch <= PCAloss_epoch:
-            var_loss = self.calc_var_loss(z_bisim, next_z_bisim, VC_target, epsilon=0.1)
+            var_loss = self.calc_var_loss(z_bisim, next_z_bisim, VC_target, epsilon=1e-4)
         else:
             var_loss = self.calc_PCAVar_loss(z_bisim, next_z_bisim, PCA1_loss_target, VC_target, num_pcs)
 
         # 5. compute covariance regularization
-        cov_reg = self.compute_covariance_regularization(z_bisim, next_z_bisim)
+        cov_reg = self.compute_covariance_regularization(z_bisim, next_z_bisim, var_target=VC_target)
         cov_reg = cov_reg.unsqueeze(1).expand(-1, r_dist.shape[1])  # (b, t)
 
         var_loss = var_loss * var_loss_coef

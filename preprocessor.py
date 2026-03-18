@@ -49,7 +49,14 @@ class Preprocessor:
     def transform_obs_visual(self, obs_visual):
         transformed_obs_visual = torch.tensor(obs_visual)
         transformed_obs_visual = self.preprocess_obs_visual(transformed_obs_visual)
-        transformed_obs_visual = self.transform(transformed_obs_visual)
+        # flatten (b, t) into batch dim for transforms that expect 4D input
+        if transformed_obs_visual.ndim == 5:
+            b, t, c, h, w = transformed_obs_visual.shape
+            transformed_obs_visual = transformed_obs_visual.reshape(b * t, c, h, w)
+            transformed_obs_visual = self.transform(transformed_obs_visual)
+            transformed_obs_visual = transformed_obs_visual.reshape(b, t, c, *transformed_obs_visual.shape[-2:])
+        else:
+            transformed_obs_visual = self.transform(transformed_obs_visual)
         return transformed_obs_visual
     
     def transform_obs(self, obs):

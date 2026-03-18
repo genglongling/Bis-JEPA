@@ -1,7 +1,7 @@
 defaults:
   - _self_
-  - env: point_maze
-  - encoder: dino 
+  - env: pusht
+  - encoder: dino
   - action_encoder: proprio
   - proprio_encoder: proprio
   - decoder: vqvae
@@ -32,17 +32,17 @@ hydra:
 training:
   seed: 0
   epochs: 100
-  batch_size: 20 # should >= nodes * tasks_per_node
+  batch_size: 40 # should >= nodes * tasks_per_node
   save_every_x_epoch: 1
   reconstruct_every_x_batch: 500
   num_reconstruct_samples: 6
-  encoder_lr: 1e-6
+  encoder_lr: 5e-7
   decoder_lr: 3e-4
-  predictor_lr: 5e-5
+  predictor_lr: 1e-5
   action_encoder_lr: 1e-5 # decreasing from 5e-4
-  bisim_lr: 5e-7  # Learning rate for bisimulation model # decreasing from 3e-4 --> 1e-5 --> 5e-6
+  bisim_lr: 5e-5  # Learning rate for bisimulation model # increased from 5e-7 to escape collapse
 
-img_size: 224 # should be a multiple of 224
+img_size: 224 # 224 for point_maze and wall
 frameskip: 5
 concat_dim: 1
 
@@ -58,14 +58,14 @@ num_proprio_repeat: 1
 
 # bisimulation model settings
 has_bisim: True  # Enable bisimulation model
-bisim_latent_dim: 8  # Latent dimension for bisimulation model
+bisim_latent_dim: 64  # Latent dimension for bisimulation model
 bisim_hidden_dim: 2048  # Hidden dimension for bisimulation model
 bisim_coef: 1  # Coefficient for bisimulation loss
 var_loss_coef: 1
 PCA1_loss_target: 0.0001
-VC_target: 1
+VC_target: 0.5  # lowered from 1.0 — DINOv2 natural variance ~0.3, old target was unreachable
 num_pcs: 10
-PCAloss_epoch: 200
+PCAloss_epoch: 2000
 bisim_memory_buffer_size: 1000  # Size of memory buffer for cross-batch bisimulation (0 = disabled)
 bisim_comparison_size: 200  # Total number of states to compare in bisimulation learning
 
@@ -88,7 +88,7 @@ model:
   bypass_dinov2: False  # If True, train obs -> bisim directly, bypassing DinoV2
 
   train_w_std_loss: True
-  train_w_reward_loss: True
+  train_w_reward_loss: False
 
 debug: False 
 

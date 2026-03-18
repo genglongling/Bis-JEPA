@@ -20,11 +20,11 @@ class VWorldModel(nn.Module):
             bisim_latent_dim=32,
             bisim_hidden_dim=256,
             bisim_coef=1.0,
-            var_loss_coef: float = 1.0,
-            PCA1_loss_target: float = 0.01,
-            VC_target: float = 1.0,
-            num_pcs: int = 10,
-            PCAloss_epoch: int = 50,
+            var_loss_coef: float=1.0,
+            PCA1_loss_target: float=0.01,
+            VC_target: float=1.0,
+            num_pcs: int=10,
+            PCAloss_epoch: int=50,
             train_bisim=True,
             bypass_dinov2=False,
             bisim_memory_buffer_size=0,
@@ -514,12 +514,12 @@ class VWorldModel(nn.Module):
             # add bisimulation loss
             if self.has_bisim:
                 z_obs_src, z_act_src = self.separate_emb(z_src)
-                z_obs_pred, _ = self.separate_emb(z_pred)
+                z_obs_tgt, _ = self.separate_emb(z_tgt)
                 action_emb = self.encode_act(act[:, : self.num_hist])
 
                 bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg = self.calc_bisim_loss(
                     z_obs_src["visual"],
-                    z_obs_pred["visual"],
+                    z_obs_tgt["visual"],
                     action_emb,
                     epoch=epoch
                 )
