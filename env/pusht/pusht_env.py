@@ -379,9 +379,16 @@ class PushTEnv(gym.Env):
         with_target=True,
         shape="T",  # shape can be "T" <- the original shape, "I", "L", "Z", "square" and "small_tee"
         color="LightSlateGray",
+        visual_condition="NC",
+        distractor_seed=0,
     ):  
+        from env.visual_conditions import normalize_visual_condition
+
         self.shape = shape
         self.color = color
+        self.visual_condition = normalize_visual_condition(visual_condition)
+        self.distractor_seed = int(distractor_seed)
+        self._render_frame_idx = 0
         self._seed = None
         self.seed()
         self.window_size = ws = 512  # The size of the PyGame window
@@ -472,6 +479,7 @@ class PushTEnv(gym.Env):
         self._set_state(state)
 
         self.coverage_arr = []
+        self._render_frame_idx = 0
         state = self._get_obs()
         visual = self._render_frame("rgb_array")
         proprio = state[:2]
@@ -601,7 +609,23 @@ class PushTEnv(gym.Env):
             self.clock = pygame.time.Clock()
 
         canvas = pygame.Surface((self.window_size, self.window_size))
-        canvas.fill((255, 255, 255))
+        vc = self.visual_condition
+        if vc == "NC":
+            canvas.fill((255, 255, 255))
+        elif vc == "SC":
+            canvas.fill((245, 248, 255))
+        elif vc == "C":
+            canvas.fill((230, 240, 255))
+        elif vc == "LC":
+            canvas.fill((255, 200, 160))
+        elif vc == "LCG":
+            ws = self.window_size
+            for i in range(ws):
+                t = i / max(ws - 1, 1)
+                c = (int(200 + 55 * t), int(220 + 35 * (1 - t)), 255)
+                pygame.draw.line(canvas, c, (i, 0), (i, ws))
+        else:
+            canvas.fill((255, 255, 255))
         self.screen = canvas
 
         draw_options = DrawOptions(canvas)
@@ -631,6 +655,20 @@ class PushTEnv(gym.Env):
 
         img = np.transpose(np.array(pygame.surfarray.pixels3d(canvas)), axes=(1, 0, 2))
         img = cv2.resize(img, (self.render_size, self.render_size))
+        if vc == "D":
+            h, w = img.shape[:2]
+            t = self._render_frame_idx
+            self._render_frame_idx += 1
+            rs = np.random.RandomState((t + self.distractor_seed) % (2**32 - 1))
+            for _ in range(6):
+                cx = int(rs.randint(0, w))
+                cy = int(rs.randint(0, h))
+                rad = int(rs.randint(3, 10))
+                col = tuple(int(x) for x in rs.randint(40, 255, size=3))
+                cv2.circle(img, (cx, cy), rad, col, -1)
+            cx = int(w // 2 + (w // 3) * np.sin(0.15 * t))
+            cy = int(h // 2 + (h // 3) * np.cos(0.12 * t))
+            cv2.circle(img, (cx, cy), 12, (255, 40, 40), -1)
         if self.render_action:
             if self.render_action and (self.latest_action is not None):
                 action = np.array(self.latest_action)

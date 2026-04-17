@@ -44,3 +44,13 @@ objective:
 point_maze_env:
   _target_: env.pointmaze.maze_model.point_maze
   background: default
+
+wandb_logging: true
+
+# Passed to gym.make for wall / pusht (see plan.py). Use hydra overrides, e.g.
+# wall_env.visual_condition=LC
+wall_env:
+  visual_condition: NC
+
+pusht_env:
+  visual_condition: NC

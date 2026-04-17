@@ -1,0 +1,85 @@
+# Local single-process training (no Slurm). Same as train.yaml but basic Hydra launcher only.
+defaults:
+  - _self_
+  - env: pusht
+  - encoder: dino
+  - action_encoder: proprio
+  - proprio_encoder: proprio
+  - decoder: vqvae
+  - predictor: vit
+  - override hydra/launcher: basic
+
+ckpt_base_path: ./
+
+hydra:
+  run:
+    dir: ${ckpt_base_path}/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: ${ckpt_base_path}/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+
+training:
+  seed: 0
+  epochs: 100
+  batch_size: 40
+  save_every_x_epoch: 1
+  reconstruct_every_x_batch: 500
+  num_reconstruct_samples: 6
+  encoder_lr: 5e-7
+  decoder_lr: 3e-4
+  predictor_lr: 1e-5
+  action_encoder_lr: 1e-5
+  bisim_lr: 5e-5
+
+img_size: 224
+frameskip: 5
+concat_dim: 1
+
+normalize_action: True
+
+action_emb_dim: 10
+num_action_repeat: 1
+
+proprio_emb_dim: 10
+num_proprio_repeat: 1
+
+has_bisim: True
+bisim_latent_dim: 64
+bisim_hidden_dim: 2048
+bisim_coef: 1
+var_loss_coef: 1
+PCA1_loss_target: 0.0001
+VC_target: 0.5
+num_pcs: 10
+PCAloss_epoch: 2000
+bisim_memory_buffer_size: 1000
+bisim_comparison_size: 200
+
+num_hist: 3
+num_pred: 1
+has_predictor: True
+has_decoder: False
+
+accelerate_launch: False
+
+model:
+  _target_: models.visual_world_model.VWorldModel
+  image_size: ${img_size}
+  num_hist: ${num_hist}
+  num_pred: ${num_pred}
+  train_encoder: False
+  train_predictor: True
+  train_decoder: True
+  train_bisim: True
+  bypass_dinov2: False
+  train_w_std_loss: True
+  train_w_reward_loss: False
+
+debug: False
+
+plan_settings:
+  plan_cfg_path: null
+  planner: ['gd', 'cem']
+  goal_source: ['dset', 'random_state']
+  goal_H: [5]
+  alpha: [0.1, 1]

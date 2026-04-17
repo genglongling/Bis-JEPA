@@ -1,0 +1,23 @@
+{
+  "ckpt_base_path": "./checkpoints",
+  "env": "wall",
+  "config_name": "plan_wall",
+  "row_labels": [
+    "DINO-WM",
+    "DINO-WM w/DR",
+    "Ours",
+    "No Encoder",
+    "DINOv2",
+    "SimDINOv2"
+  ],
+  "models": {
+    "DINO-WM": "REPLACE_WITH_OUTPUT_DIR_NAME",
+    "DINO-WM w/DR": "REPLACE_WITH_OUTPUT_DIR_NAME",
+    "Ours": "REPLACE_WITH_OUTPUT_DIR_NAME",
+    "No Encoder": "REPLACE_WITH_OUTPUT_DIR_NAME",
+    "DINOv2": "REPLACE_WITH_OUTPUT_DIR_NAME",
+    "SimDINOv2": "REPLACE_WITH_OUTPUT_DIR_NAME"
+  },
+  "conditions": ["NC", "SC", "C", "LC", "LCG", "D"],
+  "extra_hydra_overrides": []
+}

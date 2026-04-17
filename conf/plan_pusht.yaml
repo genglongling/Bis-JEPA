@@ -54,3 +54,7 @@ planner:
     eval_every: 1
   name: mpc_cem
 
+wandb_logging: true
+
+pusht_env:
+  visual_condition: NC

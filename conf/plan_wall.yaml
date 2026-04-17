@@ -53,3 +53,8 @@ planner:
     opt_steps: 20
     eval_every: 1
   name: mpc_cem
+
+wandb_logging: true
+
+wall_env:
+  visual_condition: NC

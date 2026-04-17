@@ -9,10 +9,14 @@ class PushTWrapper(PushTEnv):
             self, 
             with_velocity=True,
             with_target=True,
+            visual_condition="NC",
+            distractor_seed=0,
         ):
         super().__init__(
             with_velocity=with_velocity,
-            with_target=with_target, 
+            with_target=with_target,
+            visual_condition=visual_condition,
+            distractor_seed=distractor_seed,
         )
         self.action_dim = self.action_space.shape[0]
     

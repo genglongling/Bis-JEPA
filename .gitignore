@@ -5,3 +5,12 @@ outputs
 plan_outputs
 SimDINO
 ibot
+
+# Local datasets & checkpoints (too large for GitHub; use OSF / host storage + DATASET_DIR)
+datasets/data/
+data/
+*.pth
+checkpoints/
+.venv/
+.venv_train/
+wandb/

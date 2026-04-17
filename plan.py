@@ -495,6 +495,10 @@ def planning_main(cfg_dict):
         background = cfg_dict.get("point_maze_env", {}).get("background")
         if background:
             env_kwargs["background"] = background
+    if model_cfg.env.name == "wall" and cfg_dict.get("wall_env"):
+        env_kwargs.update(cfg_dict["wall_env"])
+    if model_cfg.env.name == "pusht" and cfg_dict.get("pusht_env"):
+        env_kwargs.update(cfg_dict["pusht_env"])
 
     # use dummy vector env for wall and deformable envs
     if model_cfg.env.name == "wall" or model_cfg.env.name == "deformable_env":
@@ -537,7 +541,7 @@ def main(cfg: OmegaConf):
         cfg["saved_folder"] = os.getcwd()
         log.info(f"Planning result saved dir: {cfg['saved_folder']}")
     cfg_dict = cfg_to_dict(cfg)
-    cfg_dict["wandb_logging"] = True
+    cfg_dict["wandb_logging"] = cfg_dict.get("wandb_logging", True)
     planning_main(cfg_dict)
 
 

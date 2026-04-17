@@ -52,8 +52,31 @@ resize_transform = transforms.Resize((224, 224))
 TRANSFORM = resize_transform
     
 class WallEnvWrapper(DotWall):
-    def __init__(self, rng=42, wall_config=DEFAULT_CFG, fix_wall=True, cross_wall=False, fix_wall_location=32, fix_door_location=10, device='cpu', **kwargs):
-        super().__init__(rng, wall_config, fix_wall, cross_wall, fix_wall_location=fix_wall_location, fix_door_location=fix_door_location, device=device,**kwargs)
+    def __init__(
+        self,
+        rng=42,
+        wall_config=DEFAULT_CFG,
+        fix_wall=True,
+        cross_wall=False,
+        fix_wall_location=32,
+        fix_door_location=10,
+        device="cpu",
+        visual_condition="NC",
+        distractor_seed=0,
+        **kwargs,
+    ):
+        super().__init__(
+            rng,
+            wall_config,
+            fix_wall,
+            cross_wall,
+            fix_wall_location=fix_wall_location,
+            fix_door_location=fix_door_location,
+            device=device,
+            visual_condition=visual_condition,
+            distractor_seed=distractor_seed,
+            **kwargs,
+        )
         self.action_dim = ENV_ACTION_DIM
         self.transform = TRANSFORM
 
