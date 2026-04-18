@@ -3,9 +3,10 @@ import torch.nn as nn
 
 torch.hub._validate_not_a_forked_repo=lambda a,b,c: True
 
-# Pin DINOv2 git ref: `main` uses PEP 604 unions (`X | None`) and requires Python 3.10+.
-# Py 3.9 envs (see environment.yaml) must use a release tag, not the moving main branch.
-_DINOV2_HUB_REPO = "facebookresearch/dinov2:v0.6.0"
+# There is no v0.6.0 (or any) tag on facebookresearch/dinov2 — using `v0.6.0` makes torch.hub 404.
+# `main` tracks PEP 604 syntax — use Python 3.10+ (see environment.yaml). For a fixed tree, pin a commit:
+#   _DINOV2_HUB_REPO = "facebookresearch/dinov2:<commit_sha>"
+_DINOV2_HUB_REPO = "facebookresearch/dinov2:main"
 
 
 class DinoV2Encoder(nn.Module):
