@@ -6,6 +6,7 @@ torch.hub._validate_not_a_forked_repo=lambda a,b,c: True
 # There is no v0.6.0 (or any) tag on facebookresearch/dinov2 — using `v0.6.0` makes torch.hub 404.
 # `main` tracks PEP 604 syntax — use Python 3.10+ (see environment.yaml). For a fixed tree, pin a commit:
 #   _DINOV2_HUB_REPO = "facebookresearch/dinov2:<commit_sha>"
+# change the repo
 _DINOV2_HUB_REPO = "facebookresearch/dinov2:main"
 
 
