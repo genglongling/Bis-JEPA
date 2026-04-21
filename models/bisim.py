@@ -418,6 +418,43 @@ class BisimModel(nn.Module):
 
         return loss
 
+    def vicreg_unsup(
+        self,
+        z1: torch.Tensor,
+        z2: torch.Tensor,
+        inv_coef: float = 25.0,
+        var_coef: float = 25.0,
+        cov_coef: float = 1.0,
+        std_min: float = 1.0,
+    ) -> torch.Tensor:
+        """
+        VICReg-style invariance + variance + covariance on mean-pooled bisim features.
+        z1, z2: (B, T, P, D) paired 'views' (e.g. z_bisim vs z_bisim2).
+        Returns a scalar.
+        """
+        b, t, p, d = z1.shape
+        u = z1.mean(dim=2).reshape(-1, d)
+        v = z2.mean(dim=2).reshape(-1, d)
+        n = u.shape[0]
+        inv = F.mse_loss(u, v)
+
+        def var_hinge(x: torch.Tensor) -> torch.Tensor:
+            std = torch.sqrt(x.var(dim=0, unbiased=True) + 1e-8)
+            return torch.relu(std_min - std).mean()
+
+        v_term = 0.5 * (var_hinge(u) + var_hinge(v))
+
+        def cov_loss(x: torch.Tensor) -> torch.Tensor:
+            x = x - x.mean(dim=0, keepdim=True)
+            c = (x.t() @ x) / (n - 1 + 1e-5)
+            dm = torch.diag(c)
+            c_diag = torch.diag(dm)
+            off = c - c_diag
+            return (off**2).sum() / d
+
+        c_term = cov_loss(u) + cov_loss(v)
+        return inv_coef * inv + var_coef * v_term + cov_coef * c_term
+
     def calc_var_loss(self, z_bisim, next_z_bisim, var_target=0.1, epsilon=0):
 
         """
@@ -458,10 +495,15 @@ class BisimModel(nn.Module):
     def calc_bisim_loss(self, z_bisim, z_bisim2, reward, reward2, next_z_bisim, next_z_bisim2, epoch, discount=0.99,
                         train_w_reward_loss=True, var_loss_coef: float = 1.0, PCA1_loss_target: float = 0.01,
                         VC_target: float = 1.0,
-                        num_pcs: int = 10, PCAloss_epoch: int = 50):
+                        num_pcs: int = 10, PCAloss_epoch: int = 50,
+                        regularization: str = "pca",
+                        vicreg_inv_coef: float = 25.0, vicreg_var_coef: float = 25.0,
+                        vicreg_cov_coef: float = 1.0, vicreg_std_min: float = 1.0):
         """
         Calculate bisimulation loss
         bisimulation metric: d(s1,s2) = |r(s1) - r(s2)| + γ · d(P(s1), P(s2)) + Variance Loss + Covariance Regularization
+        If regularization == "vicreg", replaces the variance + per-patch covariance block with VICReg on pooled z, z2.
+        "pca" and "default" are aliases (hinge var / PCA var after PCAloss_epoch + per-patch cov).
         input: z_bisim, z_bisim2: (b, t, num_patches, patch_dim)
                reward, reward2: (b, t, 1)
                next_z_bisim, next_z_bisim2: (b, t, num_patches, patch_dim)
@@ -489,18 +531,30 @@ class BisimModel(nn.Module):
 
         transition_dist = transition_dist.unsqueeze(1).expand(-1, r_dist.shape[1])  # (b, t)
 
-        # 4. compute variance loss
-        if epoch <= PCAloss_epoch:
-            var_loss = self.calc_var_loss(z_bisim, next_z_bisim, VC_target, epsilon=1e-4)
+        use_vicreg = str(regularization).lower() == "vicreg"
+        if use_vicreg:
+            v_total = self.vicreg_unsup(
+                z_bisim, z_bisim2, vicreg_inv_coef, vicreg_var_coef, vicreg_cov_coef, vicreg_std_min
+            )
+            v_total = v_total * var_loss_coef
+            per_cell = (v_total / (b * t + 1e-8)) * torch.ones(
+                b, t, device=z_bisim.device, dtype=z_bisim.dtype
+            )
+            var_loss = per_cell
+            cov_reg = torch.zeros_like(var_loss)
         else:
-            var_loss = self.calc_PCAVar_loss(z_bisim, next_z_bisim, PCA1_loss_target, VC_target, num_pcs)
+            # 4. compute variance loss
+            if epoch <= PCAloss_epoch:
+                var_loss = self.calc_var_loss(z_bisim, next_z_bisim, VC_target, epsilon=1e-4)
+            else:
+                var_loss = self.calc_PCAVar_loss(z_bisim, next_z_bisim, PCA1_loss_target, VC_target, num_pcs)
 
-        # 5. compute covariance regularization
-        cov_reg = self.compute_covariance_regularization(z_bisim, next_z_bisim, var_target=VC_target)
-        cov_reg = cov_reg.unsqueeze(1).expand(-1, r_dist.shape[1])  # (b, t)
+            # 5. compute covariance regularization
+            cov_reg = self.compute_covariance_regularization(z_bisim, next_z_bisim, var_target=VC_target)
+            cov_reg = cov_reg.unsqueeze(1).expand(-1, r_dist.shape[1])  # (b, t)
 
-        var_loss = var_loss * var_loss_coef
-        cov_reg = cov_reg * var_loss_coef
+            var_loss = var_loss * var_loss_coef
+            cov_reg = cov_reg * var_loss_coef
 
         if train_w_reward_loss:
             target_bisimilarity = r_dist + discount * transition_dist

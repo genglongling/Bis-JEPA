@@ -391,6 +391,11 @@ class Trainer:
             bypass_dinov2=self.cfg.model.get('bypass_dinov2', False),
             bisim_memory_buffer_size=self.cfg.get('bisim_memory_buffer_size', 0),
             bisim_comparison_size=self.cfg.get('bisim_comparison_size', 20),
+            regularization=self.cfg.get('regularization', 'pca'),
+            vicreg_inv_coef=self.cfg.get('vicreg_inv_coef', 25.0),
+            vicreg_var_coef=self.cfg.get('vicreg_var_coef', 25.0),
+            vicreg_cov_coef=self.cfg.get('vicreg_cov_coef', 1.0),
+            vicreg_std_min=self.cfg.get('vicreg_std_min', 1.0),
         )
 
     def init_optimizers(self):

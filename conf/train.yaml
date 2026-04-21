@@ -69,6 +69,13 @@ PCAloss_epoch: 2000
 bisim_memory_buffer_size: 1000  # Size of memory buffer for cross-batch bisimulation (0 = disabled)
 bisim_comparison_size: 200  # Total number of states to compare in bisimulation learning
 
+# Bisim extra regularization: "pca" (default, hinge/PCA var + per-patch cov) or "vicreg"
+regularization: pca
+vicreg_inv_coef: 25.0
+vicreg_var_coef: 25.0
+vicreg_cov_coef: 1.0
+vicreg_std_min: 1.0
+
 num_hist: 3
 num_pred: 1 # only supports 1
 has_predictor: True # set this to False for only training a decoder

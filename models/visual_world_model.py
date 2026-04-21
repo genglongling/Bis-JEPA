@@ -27,19 +27,24 @@ class VWorldModel(nn.Module):
             PCAloss_epoch: int=50,
             train_bisim=True,
             bypass_dinov2=False,
-            bisim_memory_buffer_size=0,
-            bisim_comparison_size=20,
-            proprio_dim=0,
-            action_dim=0,
-            concat_dim=0,
-            num_action_repeat=7,
-            num_proprio_repeat=7,
-            train_encoder=True,
-            train_predictor=False,
-            train_decoder=True,
-            train_w_std_loss=True,
-            train_w_reward_loss=True,
-            accelerate=False,
+        bisim_memory_buffer_size=0,
+        bisim_comparison_size=20,
+        proprio_dim=0,
+        action_dim=0,
+        concat_dim=0,
+        num_action_repeat=7,
+        num_proprio_repeat=7,
+        train_encoder=True,
+        train_predictor=False,
+        train_decoder=True,
+        train_w_std_loss=True,
+        train_w_reward_loss=True,
+        accelerate=False,
+        regularization: str = "pca",
+        vicreg_inv_coef: float = 25.0,
+        vicreg_var_coef: float = 25.0,
+        vicreg_cov_coef: float = 1.0,
+        vicreg_std_min: float = 1.0,
     ):
         super().__init__()
         self.num_hist = num_hist
@@ -141,6 +146,11 @@ class VWorldModel(nn.Module):
         self.train_w_std_loss = train_w_std_loss
         self.train_w_reward_loss = train_w_reward_loss
         self.accelerate = accelerate
+        self.regularization = regularization
+        self.vicreg_inv_coef = vicreg_inv_coef
+        self.vicreg_var_coef = vicreg_var_coef
+        self.vicreg_cov_coef = vicreg_cov_coef
+        self.vicreg_std_min = vicreg_std_min
 
     def train(self, mode=True):
         super().train(mode)
@@ -292,14 +302,18 @@ class VWorldModel(nn.Module):
                         z_bisim_combined, z_bisim2, reward_combined, reward2,
                         next_z_bisim_combined, next_z_bisim2, epoch, discount, self.train_w_reward_loss,
                         self.var_loss_coef,
-                        self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch
+                        self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
+                        self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
+                        self.vicreg_cov_coef, self.vicreg_std_min,
                     )
                 else:
                     bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg = self.bisim_model.calc_bisim_loss(
                         z_bisim_combined, z_bisim2, reward_combined, reward2,
                         next_z_bisim_combined, next_z_bisim2, epoch, discount, self.train_w_reward_loss,
                         self.var_loss_coef,
-                        self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch
+                        self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
+                        self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
+                        self.vicreg_cov_coef, self.vicreg_std_min,
                     )
 
                 bisim_loss = bisim_loss[:batch_size]
@@ -314,13 +328,17 @@ class VWorldModel(nn.Module):
                     bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg = self.bisim_model.module.calc_bisim_loss(
                         z_bisim, z_bisim2, reward, reward2,
                         next_z_bisim, next_z_bisim2, epoch, discount, self.train_w_reward_loss, self.var_loss_coef,
-                        self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch
+                        self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
+                        self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
+                        self.vicreg_cov_coef, self.vicreg_std_min,
                     )
                 else:
                     bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg = self.bisim_model.calc_bisim_loss(
                         z_bisim, z_bisim2, reward, reward2,
                         next_z_bisim, next_z_bisim2, epoch, discount, self.train_w_reward_loss, self.var_loss_coef,
-                        self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch
+                        self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
+                        self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
+                        self.vicreg_cov_coef, self.vicreg_std_min,
                     )
         else:
             # memory buffer disabled or eval mode
@@ -333,13 +351,17 @@ class VWorldModel(nn.Module):
                 bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg = self.bisim_model.module.calc_bisim_loss(
                     z_bisim, z_bisim2, reward, reward2,
                     next_z_bisim, next_z_bisim2, epoch, discount, self.train_w_reward_loss, self.var_loss_coef,
-                    self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch
+                    self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
+                    self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
+                    self.vicreg_cov_coef, self.vicreg_std_min,
                 )
             else:
                 bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg = self.bisim_model.calc_bisim_loss(
                     z_bisim, z_bisim2, reward, reward2,
                     next_z_bisim, next_z_bisim2, epoch, discount, self.train_w_reward_loss, self.var_loss_coef,
-                    self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch
+                    self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
+                    self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
+                    self.vicreg_cov_coef, self.vicreg_std_min,
                 )
 
         if self.training:

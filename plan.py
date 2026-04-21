@@ -428,6 +428,11 @@ def load_model(model_ckpt, train_cfg, num_action_repeat, device):
             "bypass_dinov2": train_cfg.model.get('bypass_dinov2', False),
             "bisim_memory_buffer_size": train_cfg.get('bisim_memory_buffer_size', 0),
             "bisim_comparison_size": train_cfg.get('bisim_comparison_size', 20),
+            "regularization": train_cfg.get('regularization', 'pca'),
+            "vicreg_inv_coef": train_cfg.get('vicreg_inv_coef', 25.0),
+            "vicreg_var_coef": train_cfg.get('vicreg_var_coef', 25.0),
+            "vicreg_cov_coef": train_cfg.get('vicreg_cov_coef', 1.0),
+            "vicreg_std_min": train_cfg.get('vicreg_std_min', 1.0),
         })
 
     model = hydra.utils.instantiate(
