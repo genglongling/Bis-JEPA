@@ -1,0 +1,138 @@
+[2026-04-18 19:42:03,259][__main__][INFO] - Loading dataset from /home/gloria/Bis-JEPA/datasets/data/pusht_noise ...
+Loaded 18685 rollouts
+Loaded 21 rollouts
+[2026-04-18 19:42:04,123][__main__][INFO] - dataloader batch size: 40
+[2026-04-18 19:42:04,124][__main__][INFO] - Train encoder, predictor, decoder, bisim, train_w_std_loss, train_w_reward_loss:            False,            True,            True,            True,            True,            False
+Using cache found in /home/gloria/.cache/torch/hub/facebookresearch_dinov2_main
+[2026-04-18 19:42:04,131][dinov2][INFO] - using MLP layer as FFN
+using 3d prop position use_3d_pos=False
+Proprio encoder type: <class 'models.proprio.ProprioceptiveEmbedding'>
+using 3d prop position use_3d_pos=False
+Action encoder type: <class 'models.proprio.ProprioceptiveEmbedding'>
+[2026-04-18 19:42:04,458][__main__][INFO] - Initializing predictor with bisimulation latent dim: 64
+DEBUG - Initializing BisimModel with: encoder.latent_ndim=2, encoder.emb_dim=384
+DEBUG - Calculated values: img_size=224, decoder_scale=16
+DEBUG - Calculated values: num_side_patches=14, num_patches=196
+DEBUG - Final input_dim for BiSim model: 75264
+[2026-04-18 19:42:04,498][__main__][INFO] - Initialized bisimulation model with latent dim 64
+[2026-04-18 19:42:04,499][__main__][INFO] - Bypass encoder mode: False
+[2026-04-18 19:42:04,499][__main__][INFO] - Training obs -> dinov2_vits14 -> bisim
+Initialized bisimulation memory buffer with size 1000, num_patches=196
+num_action_repeat: 1
+num_proprio_repeat: 1
+proprio encoder: ProprioceptiveEmbedding(
+  (patch_embed): Conv1d(4, 10, kernel_size=(1,), stride=(1,))
+)
+action encoder: ProprioceptiveEmbedding(
+  (patch_embed): Conv1d(10, 10, kernel_size=(1,), stride=(1,))
+)
+proprio_dim: 10, after repeat: 10
+action_dim: 10, after repeat: 10
+emb_dim: 404
+Model emb_dim:  404
+DINOv2 encoder: resizing images to 196x196
+Epoch 1 Train: 100%|████████████████████████| 49544/49544 [14:46:03<00:00,  1.07s/it]
+Epoch 1 Valid: 100%|████████████████████| 53/53 [00:51<00:00,  1.03it/s]
+[2026-04-19 10:29:01,717][__main__][INFO] - Epoch 1  Training loss: 0.3045  Validation loss: 0.2521
+[2026-04-19 10:29:01,717][__main__][INFO] - Train:  Bisim_loss: 0.1547                      z_loss: 0.1498  z_proprio_loss: 0.0182                     Bisim z_dist: 1.7830  Bisim r_dist: 0.0445                      Variance loss: 0.0220  Transition_dist (Covariance): 1.8536                     Covariance loss: 0.0623
+[2026-04-19 10:29:01,717][__main__][INFO] - Validation:  Bisim_loss: 0.1317                      z_loss: 0.1204  z_proprio_loss: 0.0045                     Bisim z_dist: 1.6101  Bisim r_dist: 0.0542                      Variance loss: 0.0075  Transition_dist (Covariance): 1.7370                     Covariance loss: 0.0576
+[2026-04-19 10:29:01,829][__main__][INFO] - Saved model to /home/gloria/Bis-JEPA/outputs/2026-04-18/19-42-02
+Epoch 2 Train: 100%|███████████| 49544/49544 [19:42:17<00:00,  1.43s/it]
+Epoch 2 Valid: 100%|████████████████████| 53/53 [01:22<00:00,  1.55s/it]
+[2026-04-20 06:12:44,699][__main__][INFO] - Epoch 2  Training loss: 0.2142  Validation loss: 0.2209
+[2026-04-20 06:12:44,708][__main__][INFO] - Train:  Bisim_loss: 0.0926                      z_loss: 0.1217  z_proprio_loss: 0.0086                     Bisim z_dist: 1.8162  Bisim r_dist: 0.0466                      Variance loss: 0.0004  Transition_dist (Covariance): 1.8719                     Covariance loss: 0.0377
+[2026-04-20 06:12:44,709][__main__][INFO] - Validation:  Bisim_loss: 0.1160                      z_loss: 0.1048  z_proprio_loss: 0.0030                     Bisim z_dist: 1.6450  Bisim r_dist: 0.0551                      Variance loss: 0.0052  Transition_dist (Covariance): 1.7598                     Covariance loss: 0.0508
+[2026-04-20 06:12:44,940][__main__][INFO] - Saved model to /home/gloria/Bis-JEPA/outputs/2026-04-18/19-42-02
+Epoch 3 Train:  77%|██████▉  | 38008/49544 [16:16:41<4:56:26,  1.54s/it]
+Traceback (most recent call last):
+  File "/home/gloria/Bis-JEPA/train.py", line 971, in <module>
+    main()
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/hydra/main.py", line 90, in decorated_main
+    _run_hydra(
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/hydra/_internal/utils.py", line 389, in _run_hydra
+    _run_app(
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/hydra/_internal/utils.py", line 452, in _run_app
+    run_and_report(
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/hydra/_internal/utils.py", line 213, in run_and_report
+    return func()
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/hydra/_internal/utils.py", line 453, in <lambda>
+    lambda: hydra.run(
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/hydra/_internal/hydra.py", line 119, in run
+    ret = run_job(
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/hydra/core/utils.py", line 186, in run_job
+    ret.return_value = task_function(task_cfg)
+  File "/home/gloria/Bis-JEPA/train.py", line 967, in main
+    trainer.run()
+  File "/home/gloria/Bis-JEPA/train.py", line 472, in run
+    self.train()
+  File "/home/gloria/Bis-JEPA/train.py", line 540, in train
+    for i, data in enumerate(
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/tqdm/std.py", line 1181, in __iter__
+    for obj in iterable:
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/accelerate/data_loader.py", line 589, in __iter__
+    next_batch = next(dataloader_iter)
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 701, in __next__
+    data = self._next_data()
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 1448, in _next_data
+    idx, data = self._get_data()
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 1412, in _get_data
+    success, data = self._try_get_data()
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 1243, in _try_get_data
+    data = self._data_queue.get(timeout=timeout)
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/multiprocessing/queues.py", line 113, in get
+    if not self._poll(timeout):
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/multiprocessing/connection.py", line 257, in poll
+    return self._poll(timeout)
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/multiprocessing/connection.py", line 424, in _poll
+    r = wait([self], timeout)
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/multiprocessing/connection.py", line 931, in wait
+    ready = selector.select(timeout)
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/selectors.py", line 416, in select
+    fd_event_list = self._selector.poll(timeout)
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "/home/gloria/Bis-JEPA/train.py", line 971, in <module>
+    main()
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/hydra/main.py", line 90, in decorated_main
+    _run_hydra(
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/hydra/_internal/utils.py", line 389, in _run_hydra
+    _run_app(
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/hydra/_internal/utils.py", line 452, in _run_app
+    run_and_report(
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/hydra/_internal/utils.py", line 213, in run_and_report
+    return func()
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/hydra/_internal/utils.py", line 453, in <lambda>
+    lambda: hydra.run(
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/hydra/_internal/hydra.py", line 119, in run
+    ret = run_job(
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/hydra/core/utils.py", line 186, in run_job
+    ret.return_value = task_function(task_cfg)
+  File "/home/gloria/Bis-JEPA/train.py", line 967, in main
+    trainer.run()
+  File "/home/gloria/Bis-JEPA/train.py", line 472, in run
+    self.train()
+  File "/home/gloria/Bis-JEPA/train.py", line 540, in train
+    for i, data in enumerate(
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/tqdm/std.py", line 1181, in __iter__
+    for obj in iterable:
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/accelerate/data_loader.py", line 589, in __iter__
+    next_batch = next(dataloader_iter)
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 701, in __next__
+    data = self._next_data()
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 1448, in _next_data
+    idx, data = self._get_data()
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 1412, in _get_data
+    success, data = self._try_get_data()
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 1243, in _try_get_data
+    data = self._data_queue.get(timeout=timeout)
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/multiprocessing/queues.py", line 113, in get
+    if not self._poll(timeout):
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/multiprocessing/connection.py", line 257, in poll
+    return self._poll(timeout)
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/multiprocessing/connection.py", line 424, in _poll
+    r = wait([self], timeout)
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/multiprocessing/connection.py", line 931, in wait
+    ready = selector.select(timeout)
+  File "/home/gloria/miniconda3/envs/dino_wm310/lib/python3.10/selectors.py", line 416, in select
+    fd_event_list = self._selector.poll(timeout)
+KeyboardInterrupt

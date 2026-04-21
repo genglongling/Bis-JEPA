@@ -1,0 +1,15 @@
+[34m[1mwandb[0m: Detected [huggingface_hub.inference] in use.
+[34m[1mwandb[0m: Use W&B Weave for improved LLM call tracing. Install Weave with `pip install weave` then add `import weave` to the top of your script.
+[34m[1mwandb[0m: For more information, check out the docs at: https://weave-docs.wandb.ai/
+[2026-04-17 19:44:22,191][__main__][INFO] - Loading dataset from /home/gloria/Bis-JEPA/datasets/data/pusht_noise ...
+Loaded 18685 rollouts
+Loaded 21 rollouts
+[2026-04-17 19:44:23,257][__main__][INFO] - dataloader batch size: 40
+[2026-04-17 19:44:23,257][__main__][INFO] - Train encoder, predictor, decoder, bisim, train_w_std_loss, train_w_reward_loss:            False,            True,            True,            True,            True,            False
+Downloading: "https://github.com/facebookresearch/dinov2/zipball/main" to /home/gloria/.cache/torch/hub/main.zip
+Error executing job with overrides: ['env=pusht', 'frameskip=5', 'num_hist=3', 'ckpt_base_path=.']
+Error in call to target 'models.dino.DinoV2Encoder':
+TypeError("unsupported operand type(s) for |: 'type' and 'NoneType'")
+full_key: encoder
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.

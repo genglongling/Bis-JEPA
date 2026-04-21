@@ -1,0 +1,19 @@
+[2026-04-18 19:42:02,057][__main__][INFO] - Model saved dir: /home/gloria/Bis-JEPA/outputs/2026-04-18/19-42-02
+[2026-04-18 19:42:02,145][__main__][INFO] - rank: 0  model_name: 2026-04-18/19-42-02_pusht_f5_h3_p1
+[2026-04-18 19:42:02,145][__main__][INFO] - device: cuda   model_name: 2026-04-18/19-42-02_pusht_f5_h3_p1
+[2026-04-18 19:42:03,259][__main__][INFO] - Loading dataset from /home/gloria/Bis-JEPA/datasets/data/pusht_noise ...
+[2026-04-18 19:42:04,123][__main__][INFO] - dataloader batch size: 40
+[2026-04-18 19:42:04,124][__main__][INFO] - Train encoder, predictor, decoder, bisim, train_w_std_loss, train_w_reward_loss:            False,            True,            True,            True,            True,            False
+[2026-04-18 19:42:04,131][dinov2][INFO] - using MLP layer as FFN
+[2026-04-18 19:42:04,458][__main__][INFO] - Initializing predictor with bisimulation latent dim: 64
+[2026-04-18 19:42:04,498][__main__][INFO] - Initialized bisimulation model with latent dim 64
+[2026-04-18 19:42:04,499][__main__][INFO] - Bypass encoder mode: False
+[2026-04-18 19:42:04,499][__main__][INFO] - Training obs -> dinov2_vits14 -> bisim
+[2026-04-19 10:29:01,717][__main__][INFO] - Epoch 1  Training loss: 0.3045  Validation loss: 0.2521
+[2026-04-19 10:29:01,717][__main__][INFO] - Train:  Bisim_loss: 0.1547                      z_loss: 0.1498  z_proprio_loss: 0.0182                     Bisim z_dist: 1.7830  Bisim r_dist: 0.0445                      Variance loss: 0.0220  Transition_dist (Covariance): 1.8536                     Covariance loss: 0.0623
+[2026-04-19 10:29:01,717][__main__][INFO] - Validation:  Bisim_loss: 0.1317                      z_loss: 0.1204  z_proprio_loss: 0.0045                     Bisim z_dist: 1.6101  Bisim r_dist: 0.0542                      Variance loss: 0.0075  Transition_dist (Covariance): 1.7370                     Covariance loss: 0.0576
+[2026-04-19 10:29:01,829][__main__][INFO] - Saved model to /home/gloria/Bis-JEPA/outputs/2026-04-18/19-42-02
+[2026-04-20 06:12:44,699][__main__][INFO] - Epoch 2  Training loss: 0.2142  Validation loss: 0.2209
+[2026-04-20 06:12:44,708][__main__][INFO] - Train:  Bisim_loss: 0.0926                      z_loss: 0.1217  z_proprio_loss: 0.0086                     Bisim z_dist: 1.8162  Bisim r_dist: 0.0466                      Variance loss: 0.0004  Transition_dist (Covariance): 1.8719                     Covariance loss: 0.0377
+[2026-04-20 06:12:44,709][__main__][INFO] - Validation:  Bisim_loss: 0.1160                      z_loss: 0.1048  z_proprio_loss: 0.0030                     Bisim z_dist: 1.6450  Bisim r_dist: 0.0551                      Variance loss: 0.0052  Transition_dist (Covariance): 1.7598                     Covariance loss: 0.0508
+[2026-04-20 06:12:44,940][__main__][INFO] - Saved model to /home/gloria/Bis-JEPA/outputs/2026-04-18/19-42-02

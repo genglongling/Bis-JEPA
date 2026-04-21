@@ -1,0 +1,4 @@
+- env=pusht
+- frameskip=5
+- num_hist=3
+- ckpt_base_path=.
