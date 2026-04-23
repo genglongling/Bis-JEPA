@@ -277,7 +277,7 @@ python evaluate_visual_grid.py --config evaluate_visual_grid_config_pusht.json
 
 **Note:** `val` during **training** is one dataloader (your `train/val` split in `DATASET_DIR/.../pusht_noise`); it does not automatically run six val passes. OOD sim eval is the intended way to get NC–D success curves with a model trained (often on near-NC) data.
 
-Set `ckpt_base_path` in `conf/plan.yaml` to point to the checkpoint directory. Planning logs and visualizations are saved to `./plan_outputs/`.
+Set `ckpt_base_path` in `conf/plan.yaml` to point to the directory that **contains** the `outputs/` folder (the same idea as for training: usually the repo root). A relative `ckpt_base_path=./` is resolved from the directory you were in when you **started** `plan.py` (not from Hydra’s `plan_outputs/...` run folder), so checkpoints and `hydra.yaml` are found. You can also pass an **absolute** path, e.g. `ckpt_base_path=/home/you/Bis-JEPA`. Planning logs and visualizations are written under `./plan_outputs/`.
 
 ## Citation
 

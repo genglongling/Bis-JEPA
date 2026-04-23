@@ -23,6 +23,46 @@ from utils import cfg_to_dict, seed
 warnings.filterwarnings("ignore")
 log = logging.getLogger(__name__)
 
+
+def _resolve_ckpt_base_path(ckpt_base: str) -> str:
+    """
+    Relative paths are resolved from the process cwd where the user launched plan.py
+    (Hydra run dir is plan_outputs/..., not the repo; use get_original_cwd for ./outputs).
+    """
+    p = Path(ckpt_base)
+    if p.is_absolute():
+        return str(p)
+    try:
+        from hydra.utils import get_original_cwd
+
+        return str(Path(get_original_cwd()) / p)
+    except Exception:
+        return str(Path(os.getcwd()) / p)
+
+
+def _load_trained_omega_config(model_path: str) -> OmegaConf:
+    """
+    train.py writes resolved config to <run_dir>/hydra.yaml. Hydra may also place
+    .hydra/config.yaml. Prefer the former so ${oc.env:...} values match training.
+    """
+    p = Path(model_path).resolve()
+    candidates = (p / "hydra.yaml", p / ".hydra" / "config.yaml")
+    for c in candidates:
+        if c.is_file():
+            log.info("Loading model config from %s", c)
+            return OmegaConf.load(str(c))
+    hint = (
+        f"Expected a training run directory. Tried: {candidates[0]!s}, {candidates[1]!s}. "
+        "Set ckpt_base_path to the parent of 'outputs' (e.g. absolute path to repo root) "
+        "and model_name to the subpath under outputs/ (e.g. 2026-04-21/18-44-53), "
+        "or copy the full run folder including hydra.yaml next to checkpoints."
+    )
+    if p.is_dir():
+        names = sorted(x.name for x in p.iterdir())
+        raise FileNotFoundError(f"{hint} Found in {p}: {names!r}")
+    raise FileNotFoundError(f"{hint} Directory does not exist: {p}")
+
+
 ALL_MODEL_KEYS = [
     "encoder",
     "predictor",
@@ -476,10 +516,10 @@ def planning_main(cfg_dict):
     else:
         wandb_run = None
 
-    ckpt_base_path = cfg_dict["ckpt_base_path"]
-    model_path = f"{ckpt_base_path}/outputs/{cfg_dict['model_name']}/"
-    with open(os.path.join(model_path, "hydra.yaml"), "r") as f:
-        model_cfg = OmegaConf.load(f)
+    ckpt_base_path = _resolve_ckpt_base_path(str(cfg_dict["ckpt_base_path"]))
+    model_name = str(cfg_dict["model_name"]).strip().strip("/")
+    model_path = str(Path(ckpt_base_path).resolve() / "outputs" / model_name)
+    model_cfg = _load_trained_omega_config(model_path)
 
     seed(cfg_dict["seed"])
     _, dset = hydra.utils.call(
