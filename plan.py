@@ -9,7 +9,6 @@ import wandb
 import logging
 import warnings
 import numpy as np
-import submitit
 from itertools import product
 from pathlib import Path
 from einops import rearrange
@@ -44,6 +43,8 @@ def launch_plan_jobs(
         cfg_dicts,
         plan_output_dir,
 ):
+    import submitit  # optional: only for train-time Slurm eval jobs; not needed for `python plan.py`
+
     with submitit.helpers.clean_env():
         jobs = []
         for cfg_dict in cfg_dicts:

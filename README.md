@@ -60,6 +60,14 @@ conda env create -f environment.yaml
 conda activate dino_wm
 ```
 
+**Aligning an existing env (e.g. on a server):** from the repo root, `conda env update -f environment.yaml` reproduces the pinned stack. Alternatively, after installing PyTorch as in `environment.yaml`’s header, install the **full pip list** with:
+
+```bash
+pip install -r requirements-pip.txt
+```
+
+That file matches the `pip:` section of `environment.yaml` (including `mujoco-py`, `submitit`, `gym`, etc.). `mujoco-py` still needs a C compiler and MuJoCo 2.1 on `LD_LIBRARY_PATH` on Linux—see [MuJoCo](#mujoco) below.
+
 #### MuJoCo
 
 Create the `.mujoco` directory and download MuJoCo210:
