@@ -1,0 +1,45 @@
+[2026-04-21 18:44:55,355][__main__][INFO] - Loading dataset from /home/gloria/Bis-JEPA/datasets/data/pusht_noise ...
+Loaded 18685 rollouts
+Loaded 21 rollouts
+[2026-04-21 18:44:57,280][__main__][INFO] - dataloader batch size: 40
+[2026-04-21 18:44:57,284][__main__][INFO] - Train encoder, predictor, decoder, bisim, train_w_std_loss, train_w_reward_loss:            False,            True,            True,            True,            True,            False
+Using cache found in /home/gloria/.cache/torch/hub/facebookresearch_dinov2_main
+[2026-04-21 18:44:57,310][dinov2][INFO] - using MLP layer as FFN
+using 3d prop position use_3d_pos=False
+Proprio encoder type: <class 'models.proprio.ProprioceptiveEmbedding'>
+using 3d prop position use_3d_pos=False
+Action encoder type: <class 'models.proprio.ProprioceptiveEmbedding'>
+[2026-04-21 18:44:57,996][__main__][INFO] - Initializing predictor with bisimulation latent dim: 64
+DEBUG - Initializing BisimModel with: encoder.latent_ndim=2, encoder.emb_dim=384
+DEBUG - Calculated values: img_size=224, decoder_scale=16
+DEBUG - Calculated values: num_side_patches=14, num_patches=196
+DEBUG - Final input_dim for BiSim model: 75264
+[2026-04-21 18:44:58,076][__main__][INFO] - Initialized bisimulation model with latent dim 64
+[2026-04-21 18:44:58,077][__main__][INFO] - Bypass encoder mode: False
+[2026-04-21 18:44:58,077][__main__][INFO] - Training obs -> dinov2_vits14 -> bisim
+Initialized bisimulation memory buffer with size 1000, num_patches=196
+num_action_repeat: 1
+num_proprio_repeat: 1
+proprio encoder: ProprioceptiveEmbedding(
+  (patch_embed): Conv1d(4, 10, kernel_size=(1,), stride=(1,))
+)
+action encoder: ProprioceptiveEmbedding(
+  (patch_embed): Conv1d(10, 10, kernel_size=(1,), stride=(1,))
+)
+proprio_dim: 10, after repeat: 10
+action_dim: 10, after repeat: 10
+emb_dim: 404
+Model emb_dim:  404
+DINOv2 encoder: resizing images to 196x196
+Epoch 1 Train: 100%|████████████████████████████████████| 49544/49544 [21:40:44<00:00,  1.58s/it]
+Epoch 1 Valid: 100%|█████████████████████████████████████████████| 53/53 [01:27<00:00,  1.66s/it]
+[2026-04-22 16:27:15,151][__main__][INFO] - Epoch 1  Training loss: 0.2027  Validation loss: 0.3216
+[2026-04-22 16:27:15,160][__main__][INFO] - Train:  Bisim_loss: 0.1037                      z_loss: 0.0990  z_proprio_loss: 0.0159                     Bisim z_dist: 1.7612  Bisim r_dist: 0.0305                      Variance loss: 0.0371  Transition_dist (Covariance): 1.8416                     Covariance loss: 0.0000
+[2026-04-22 16:27:15,160][__main__][INFO] - Validation:  Bisim_loss: 0.2468                      z_loss: 0.0748  z_proprio_loss: 0.0020                     Bisim z_dist: 1.6456  Bisim r_dist: 0.0218                      Variance loss: 0.1862  Transition_dist (Covariance): 1.7555                     Covariance loss: 0.0000
+[2026-04-22 16:27:15,351][__main__][INFO] - Saved model to /home/gloria/Bis-JEPA/outputs/2026-04-21/18-44-53
+Epoch 2 Train: 100%|████████████████████████████████████| 49544/49544 [20:32:53<00:00,  1.49s/it]
+Epoch 2 Valid: 100%|█████████████████████████████████████████████| 53/53 [01:25<00:00,  1.61s/it]
+[2026-04-23 13:01:37,429][__main__][INFO] - Epoch 2  Training loss: 0.1644  Validation loss: 0.3093
+[2026-04-23 13:01:37,438][__main__][INFO] - Train:  Bisim_loss: 0.0858                      z_loss: 0.0786  z_proprio_loss: 0.0047                     Bisim z_dist: 1.8123  Bisim r_dist: 0.0206                      Variance loss: 0.0370  Transition_dist (Covariance): 1.8702                     Covariance loss: 0.0000
+[2026-04-23 13:01:37,438][__main__][INFO] - Validation:  Bisim_loss: 0.2403                      z_loss: 0.0690  z_proprio_loss: 0.0019                     Bisim z_dist: 1.6724  Bisim r_dist: 0.0261                      Variance loss: 0.1862  Transition_dist (Covariance): 1.7759                     Covariance loss: 0.0000
+[2026-04-23 13:01:37,618][__main__][INFO] - Saved model to /home/gloria/Bis-JEPA/outputs/2026-04-21/18-44-53

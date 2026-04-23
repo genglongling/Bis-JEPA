@@ -1,0 +1,11 @@
+[2026-04-21 18:40:21,387][__main__][INFO] - Model saved dir: /home/gloria/Bis-JEPA/outputs/2026-04-21/18-40-21
+[2026-04-21 18:40:21,546][__main__][INFO] - rank: 0  model_name: 2026-04-21/18-40-21_pusht_f5_h3_p1
+[2026-04-21 18:40:21,547][__main__][INFO] - device: cuda   model_name: 2026-04-21/18-40-21_pusht_f5_h3_p1
+[2026-04-21 18:40:23,532][__main__][INFO] - Loading dataset from /home/gloria/Bis-JEPA/datasets/data/pusht_noise ...
+[2026-04-21 18:40:26,855][__main__][INFO] - dataloader batch size: 40
+[2026-04-21 18:40:26,858][__main__][INFO] - Train encoder, predictor, decoder, bisim, train_w_std_loss, train_w_reward_loss:            False,            True,            True,            True,            True,            False
+[2026-04-21 18:40:26,886][dinov2][INFO] - using MLP layer as FFN
+[2026-04-21 18:40:27,493][__main__][INFO] - Initializing predictor with bisimulation latent dim: 64
+[2026-04-21 18:40:27,589][__main__][INFO] - Initialized bisimulation model with latent dim 64
+[2026-04-21 18:40:27,590][__main__][INFO] - Bypass encoder mode: False
+[2026-04-21 18:40:27,591][__main__][INFO] - Training obs -> dinov2_vits14 -> bisim
