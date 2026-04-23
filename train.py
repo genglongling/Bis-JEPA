@@ -143,6 +143,11 @@ class Trainer:
             self.dataloaders["train"], self.dataloaders["valid"]
         )
 
+        if str(self.cfg.env.name).startswith("point_maze") or str(
+            self.cfg.env.name
+        ).startswith("maze2d-"):
+            import env.pointmaze  # noqa: F401 — register gym envs; requires mujoco
+
         self.encoder = None
         self.action_encoder = None
         self.proprio_encoder = None

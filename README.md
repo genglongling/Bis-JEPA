@@ -86,6 +86,8 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/<username>/.mujoco/mujoco210/bin
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/nvidia
 ```
 
+**PushT** planning (`plan_pusht_local`, `eval_pusht_six_conditions.py`) does **not** import the PointMaze / `mujoco_py` stack, so you can run it without installing MuJoCo 2.1 or compiling `mujoco-py` (PyTorch + the rest of the env is still required). **PointMaze** training and planning still need MuJoCo and `mujoco-py` as in this section.
+
 ### Datasets
 
 Datasets are provided by [DINO-WM](https://github.com/gaoyuezhou/dino_wm) and can be downloaded [here](https://osf.io/bmw48/?view_only=a56a296ce3b24cceaf408383a175ce28).

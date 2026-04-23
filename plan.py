@@ -506,6 +506,15 @@ def planning_main(cfg_dict):
     if model_cfg.env.name == "pusht" and cfg_dict.get("pusht_env"):
         env_kwargs.update(cfg_dict["pusht_env"])
 
+    # PointMaze: gym ids live in env.pointmaze (loads mujoco_py). Omit for PushT so planning
+    # does not compile mujoco on machines that only run pusht.
+    if str(model_cfg.env.name) in (
+        "point_maze",
+        "point_maze_slight_change",
+        "point_maze_gradient",
+    ) or str(model_cfg.env.name).startswith("maze2d-"):
+        import env.pointmaze  # noqa: F401
+
     # use dummy vector env for wall and deformable envs
     if model_cfg.env.name == "wall" or model_cfg.env.name == "deformable_env":
         from env.serial_vector_env import SerialVectorEnv
