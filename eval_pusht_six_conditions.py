@@ -23,6 +23,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -45,6 +46,35 @@ def extract_planning_result_dir(stdout: str) -> Optional[str]:
         if "Planning result saved dir:" in line:
             return line.split("Planning result saved dir:")[-1].strip()
     return None
+
+
+def find_latest_plan_output_dir(model_name: str, since_t: float) -> Optional[Path]:
+    """
+    When plan.py streams to the terminal we cannot read stdout; pick the newest
+    plan_outputs/* directory created after this run started. Names often contain
+    replace_slash(model_name) from Hydra.
+    """
+    root = REPO_ROOT / "plan_outputs"
+    if not root.is_dir():
+        return None
+    tag = _sanitize_tag(model_name.replace("/", "_"))
+    candidates: List[Path] = []
+    for p in root.iterdir():
+        if not p.is_dir():
+            continue
+        try:
+            m = p.stat().st_mtime
+        except OSError:
+            continue
+        if m < since_t - 2.0:
+            continue
+        candidates.append(p)
+    if not candidates:
+        return None
+    # Prefer dirs whose name echoes the model subpath
+    preferred = [p for p in candidates if tag in p.name or model_name.replace("/", "_") in p.name]
+    pool = preferred if preferred else candidates
+    return max(pool, key=lambda p: p.stat().st_mtime)
 
 
 def parse_final_success_rate(logs_json: Path) -> Optional[float]:
@@ -73,6 +103,7 @@ def run_plan_pusht(
     extra_overrides: List[str],
     timeout_s: int,
     dry_run: bool,
+    capture_output: bool = False,
 ) -> subprocess.CompletedProcess:
     cmd: List[str] = [
         sys.executable,
@@ -90,14 +121,21 @@ def run_plan_pusht(
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
     envp = os.environ.copy()
     envp["PYTHONPATH"] = str(REPO_ROOT) + os.pathsep + envp.get("PYTHONPATH", "")
-    return subprocess.run(
-        cmd,
+    envp.setdefault("PYTHONUNBUFFERED", "1")
+    # Default: stream child stdout/stderr so long MPC runs do not look "stuck"
+    # (capture_output=True hides all output until the process exits).
+    kw: dict = dict(
         cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
         timeout=timeout_s,
         env=envp,
+        text=True,
     )
+    if capture_output:
+        kw["capture_output"] = True
+    else:
+        kw["stdout"] = None
+        kw["stderr"] = None
+    return subprocess.run(cmd, **kw)
 
 
 def find_checkpoint_dir(ckpt_base_path: str, model_name: str) -> Path:
@@ -153,6 +191,11 @@ def main() -> None:
         action="store_true",
         help="Do not require outputs/<model_name> to exist before running.",
     )
+    p.add_argument(
+        "--capture-output",
+        action="store_true",
+        help="Buffer plan.py output (only for debugging). Default is to stream logs live.",
+    )
     args = p.parse_args()
     norm_conds: List[str] = []
     for c in args.conditions:
@@ -174,6 +217,13 @@ def main() -> None:
     failed: List[str] = []
     for cond in args.conditions:
         print(f"=== Condition {cond} ===", flush=True)
+        if not args.dry_run:
+            print(
+                "  (Planning can take many minutes per condition; loading model + "
+                f"{args.config_name} e.g. n_evals=50. Streaming plan.py output below.)\n",
+                flush=True,
+            )
+        t0 = time.time()
         proc = run_plan_pusht(
             ckpt_base_path=args.ckpt_base_path,
             model_name=model_name,
@@ -182,6 +232,7 @@ def main() -> None:
             extra_overrides=args.extra_hydra,
             timeout_s=args.timeout,
             dry_run=args.dry_run,
+            capture_output=args.capture_output,
         )
         if args.dry_run:
             continue
@@ -192,9 +243,15 @@ def main() -> None:
             failed.append(cond)
             continue
         out_dir = extract_planning_result_dir(proc.stdout or "")
+        if not out_dir:
+            guessed = find_latest_plan_output_dir(model_name, t0)
+            out_dir = str(guessed) if guessed else None
         plan_out_dirs[cond] = out_dir
         if not out_dir:
-            print("Could not parse 'Planning result saved dir:' from plan.py stdout", file=sys.stderr)
+            print(
+                "Could not find plan result dir (stdout parse + plan_outputs/ scan).",
+                file=sys.stderr,
+            )
             failed.append(cond)
             continue
         sr = parse_final_success_rate(Path(out_dir) / "logs.json")
