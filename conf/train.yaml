@@ -36,6 +36,10 @@ training:
   save_every_x_epoch: 1
   reconstruct_every_x_batch: 500
   num_reconstruct_samples: 6
+  # Grids: save to <train|valid>/*.png; optional W&B media (scalars still always logged)
+  log_image_mosaics_to_wandb: true
+  # When has_decoder: false, still log ground-truth frames (verifies data + context length)
+  log_ground_truth_mosaic: true
   encoder_lr: 5e-7
   decoder_lr: 3e-4
   predictor_lr: 1e-5

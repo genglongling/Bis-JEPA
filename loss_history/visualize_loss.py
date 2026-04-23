@@ -28,8 +28,10 @@ def main():
         "train_loss",
         "train_z_proprio_loss", "train_standard_l2_loss",
         "train_bisim_loss", "train_bisim_z_dist", "train_bisim_r_dist",
-        "train_bisim_var_loss", "train_bisim_transition_dist", "train_bisim_cov_reg"
+        "train_bisim_var_loss", "train_bisim_transition_dist", "train_bisim_cov_reg",
+        "train_bisim_vicreg_inv", "train_bisim_vicreg_total",
     ]
+    train_metrics = [m for m in train_metrics if m in df.columns]
 
     labels = {
         "train_loss": 'Training Loss',
@@ -40,7 +42,9 @@ def main():
         "train_bisim_r_dist": 'Reward Distance',
         "train_bisim_transition_dist": 'Transition Distance', 
         "train_bisim_var_loss": 'Variance Loss',
-        "train_bisim_cov_reg": 'Coveriance Regularization'
+        "train_bisim_cov_reg": 'Coveriance Regularization',
+        "train_bisim_vicreg_inv": "VIC invariance (monitor)",
+        "train_bisim_vicreg_total": "VIC full block (monitor)",
     }
 
     plt.figure(figsize=(12,7))
@@ -65,8 +69,10 @@ def main():
         "val_loss",
         "val_z_proprio_loss", "val_standard_l2_loss",
         "val_bisim_loss", "val_bisim_z_dist", "val_bisim_r_dist",
-        "val_bisim_var_loss", "val_bisim_transition_dist", "val_bisim_cov_reg"
+        "val_bisim_var_loss", "val_bisim_transition_dist", "val_bisim_cov_reg",
+        "val_bisim_vicreg_inv", "val_bisim_vicreg_total",
     ]
+    val_metrics = [m for m in val_metrics if m in df.columns]
 
     plt.figure(figsize=(12,7))
     for metric in val_metrics:

@@ -426,11 +426,11 @@ class BisimModel(nn.Module):
         var_coef: float = 25.0,
         cov_coef: float = 1.0,
         std_min: float = 1.0,
-    ) -> torch.Tensor:
+    ) -> tuple:
         """
         VICReg-style invariance + variance + covariance on mean-pooled bisim features.
         z1, z2: (B, T, P, D) paired 'views' (e.g. z_bisim vs z_bisim2).
-        Returns a scalar.
+        Returns (total, inv_w, var_w, cov_w) as weighted scalars (sum = total).
         """
         b, t, p, d = z1.shape
         u = z1.mean(dim=2).reshape(-1, d)
@@ -453,7 +453,10 @@ class BisimModel(nn.Module):
             return (off**2).sum() / d
 
         c_term = cov_loss(u) + cov_loss(v)
-        return inv_coef * inv + var_coef * v_term + cov_coef * c_term
+        inv_w = inv_coef * inv
+        var_w = var_coef * v_term
+        cov_w = cov_coef * c_term
+        return inv_w + var_w + cov_w, inv_w, var_w, cov_w
 
     def calc_var_loss(self, z_bisim, next_z_bisim, var_target=0.1, epsilon=0):
 
@@ -507,7 +510,10 @@ class BisimModel(nn.Module):
         input: z_bisim, z_bisim2: (b, t, num_patches, patch_dim)
                reward, reward2: (b, t, 1)
                next_z_bisim, next_z_bisim2: (b, t, num_patches, patch_dim)
-        output: bisim_loss: (b, t)
+        output: bisim_loss: (b, t); then z_dist, r_dist, transition_dist, var_loss, cov_reg
+                (as used in the objective); then log_vicreg_{inv,var,cov,total} for monitoring —
+                for PCA, log_var/log_cov copy var_loss/cov_reg, inv/total are zeros; for VICReg,
+                log_* split the VIC block so CSV columns match PCA semantics.
         """
         # 1. compute distance per (b, t) — pool over patches, then distance in d-dim space
         b, t, p, d = z_bisim.shape
@@ -533,15 +539,23 @@ class BisimModel(nn.Module):
 
         use_vicreg = str(regularization).lower() == "vicreg"
         if use_vicreg:
-            v_total = self.vicreg_unsup(
+            v_total, inv_w, var_w, cov_w = self.vicreg_unsup(
                 z_bisim, z_bisim2, vicreg_inv_coef, vicreg_var_coef, vicreg_cov_coef, vicreg_std_min
             )
             v_total = v_total * var_loss_coef
-            per_cell = (v_total / (b * t + 1e-8)) * torch.ones(
-                b, t, device=z_bisim.device, dtype=z_bisim.dtype
-            )
+            inv_w = inv_w * var_loss_coef
+            var_w = var_w * var_loss_coef
+            cov_w = cov_w * var_loss_coef
+            scale = 1.0 / (b * t + 1e-8)
+            ones = torch.ones(b, t, device=z_bisim.device, dtype=z_bisim.dtype)
+            per_cell = (v_total * scale) * ones
             var_loss = per_cell
             cov_reg = torch.zeros_like(var_loss)
+            # Logging-only: same split as the objective; comparable to PCA `var_loss` / `cov_reg` columns.
+            log_vicreg_inv = (inv_w * scale) * ones
+            log_vicreg_var = (var_w * scale) * ones
+            log_vicreg_cov = (cov_w * scale) * ones
+            log_vicreg_total = per_cell
         else:
             # 4. compute variance loss
             if epoch <= PCAloss_epoch:
@@ -555,6 +569,10 @@ class BisimModel(nn.Module):
 
             var_loss = var_loss * var_loss_coef
             cov_reg = cov_reg * var_loss_coef
+            log_vicreg_inv = torch.zeros_like(var_loss)
+            log_vicreg_var = var_loss
+            log_vicreg_cov = cov_reg
+            log_vicreg_total = torch.zeros_like(var_loss)
 
         if train_w_reward_loss:
             target_bisimilarity = r_dist + discount * transition_dist
@@ -564,4 +582,15 @@ class BisimModel(nn.Module):
         # 6. final bisim loss
         bisim_loss = (z_dist - target_bisimilarity).pow(2) + var_loss + cov_reg
 
-        return bisim_loss, z_dist, r_dist, discount * transition_dist, var_loss, cov_reg
+        return (
+            bisim_loss,
+            z_dist,
+            r_dist,
+            discount * transition_dist,
+            var_loss,
+            cov_reg,
+            log_vicreg_inv,
+            log_vicreg_var,
+            log_vicreg_cov,
+            log_vicreg_total,
+        )

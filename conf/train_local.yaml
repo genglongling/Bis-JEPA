@@ -32,6 +32,8 @@ training:
   save_every_x_epoch: 1
   reconstruct_every_x_batch: 500
   num_reconstruct_samples: 6
+  log_image_mosaics_to_wandb: true
+  log_ground_truth_mosaic: true
   encoder_lr: 5e-7
   decoder_lr: 3e-4
   predictor_lr: 1e-5

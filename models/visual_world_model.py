@@ -298,7 +298,8 @@ class VWorldModel(nn.Module):
                 reward2 = reward_combined[perm]
 
                 if hasattr(self.bisim_model, "module"):
-                    bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg = self.bisim_model.module.calc_bisim_loss(
+                    (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
+                     log_vicreg_cov, log_vicreg_total) = self.bisim_model.module.calc_bisim_loss(
                         z_bisim_combined, z_bisim2, reward_combined, reward2,
                         next_z_bisim_combined, next_z_bisim2, epoch, discount, self.train_w_reward_loss,
                         self.var_loss_coef,
@@ -307,7 +308,8 @@ class VWorldModel(nn.Module):
                         self.vicreg_cov_coef, self.vicreg_std_min,
                     )
                 else:
-                    bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg = self.bisim_model.calc_bisim_loss(
+                    (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
+                     log_vicreg_cov, log_vicreg_total) = self.bisim_model.calc_bisim_loss(
                         z_bisim_combined, z_bisim2, reward_combined, reward2,
                         next_z_bisim_combined, next_z_bisim2, epoch, discount, self.train_w_reward_loss,
                         self.var_loss_coef,
@@ -317,6 +319,15 @@ class VWorldModel(nn.Module):
                     )
 
                 bisim_loss = bisim_loss[:batch_size]
+                z_dist = z_dist[:batch_size]
+                r_dist = r_dist[:batch_size]
+                transition_dist = transition_dist[:batch_size]
+                var_loss = var_loss[:batch_size]
+                cov_reg = cov_reg[:batch_size]
+                log_vicreg_inv = log_vicreg_inv[:batch_size]
+                log_vicreg_var = log_vicreg_var[:batch_size]
+                log_vicreg_cov = log_vicreg_cov[:batch_size]
+                log_vicreg_total = log_vicreg_total[:batch_size]
             else:
                 # fallback to batch_size comparison
                 perm = torch.randperm(batch_size, device=z_bisim.device)
@@ -325,7 +336,8 @@ class VWorldModel(nn.Module):
                 reward2 = reward[perm]
 
                 if hasattr(self.bisim_model, "module"):
-                    bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg = self.bisim_model.module.calc_bisim_loss(
+                    (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
+                     log_vicreg_cov, log_vicreg_total) = self.bisim_model.module.calc_bisim_loss(
                         z_bisim, z_bisim2, reward, reward2,
                         next_z_bisim, next_z_bisim2, epoch, discount, self.train_w_reward_loss, self.var_loss_coef,
                         self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
@@ -333,7 +345,8 @@ class VWorldModel(nn.Module):
                         self.vicreg_cov_coef, self.vicreg_std_min,
                     )
                 else:
-                    bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg = self.bisim_model.calc_bisim_loss(
+                    (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
+                     log_vicreg_cov, log_vicreg_total) = self.bisim_model.calc_bisim_loss(
                         z_bisim, z_bisim2, reward, reward2,
                         next_z_bisim, next_z_bisim2, epoch, discount, self.train_w_reward_loss, self.var_loss_coef,
                         self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
@@ -348,7 +361,8 @@ class VWorldModel(nn.Module):
             reward2 = reward[perm]
 
             if hasattr(self.bisim_model, "module"):
-                bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg = self.bisim_model.module.calc_bisim_loss(
+                (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
+                 log_vicreg_cov, log_vicreg_total) = self.bisim_model.module.calc_bisim_loss(
                     z_bisim, z_bisim2, reward, reward2,
                     next_z_bisim, next_z_bisim2, epoch, discount, self.train_w_reward_loss, self.var_loss_coef,
                     self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
@@ -356,7 +370,8 @@ class VWorldModel(nn.Module):
                     self.vicreg_cov_coef, self.vicreg_std_min,
                 )
             else:
-                bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg = self.bisim_model.calc_bisim_loss(
+                (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
+                 log_vicreg_cov, log_vicreg_total) = self.bisim_model.calc_bisim_loss(
                     z_bisim, z_bisim2, reward, reward2,
                     next_z_bisim, next_z_bisim2, epoch, discount, self.train_w_reward_loss, self.var_loss_coef,
                     self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
@@ -367,7 +382,18 @@ class VWorldModel(nn.Module):
         if self.training:
             self.update_memory_buffer(z_bisim, next_z_bisim, action_emb, reward)
 
-        return bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg
+        return (
+            bisim_loss,
+            z_dist,
+            r_dist,
+            transition_dist,
+            var_loss,
+            cov_reg,
+            log_vicreg_inv,
+            log_vicreg_var,
+            log_vicreg_cov,
+            log_vicreg_total,
+        )
 
     def encode(self, obs, act):
         """
@@ -539,7 +565,8 @@ class VWorldModel(nn.Module):
                 z_obs_tgt, _ = self.separate_emb(z_tgt)
                 action_emb = self.encode_act(act[:, : self.num_hist])
 
-                bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg = self.calc_bisim_loss(
+                (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
+                 log_vicreg_cov, log_vicreg_total) = self.calc_bisim_loss(
                     z_obs_src["visual"],
                     z_obs_tgt["visual"],
                     action_emb,
@@ -552,8 +579,12 @@ class VWorldModel(nn.Module):
                 loss_components["bisim_z_dist"] = z_dist
                 loss_components["bisim_r_dist"] = r_dist
                 loss_components["bisim_transition_dist"] = transition_dist
-                loss_components["bisim_var_loss"] = var_loss
-                loss_components["bisim_cov_reg"] = cov_reg
+                # Apples-to-apples: variance vs cov columns match PCA (hinge/PCA var + per-patch cov);
+                # for VICReg they are the VIC var-hinge and VIC off-diag cov (weighted), not the combined block.
+                loss_components["bisim_var_loss"] = log_vicreg_var
+                loss_components["bisim_cov_reg"] = log_vicreg_cov
+                loss_components["bisim_vicreg_inv"] = log_vicreg_inv
+                loss_components["bisim_vicreg_total"] = log_vicreg_total
 
         else:
             visual_pred = None

@@ -579,6 +579,13 @@ class Trainer:
             loss_components = {
                 key: value.mean().item() for key, value in loss_components.items()
             }
+            if (not self.cfg.has_decoder) and plot and self.cfg.training.get(
+                "log_ground_truth_mosaic", True
+            ):
+                self.plot_ground_truth_mosaic(
+                    obs["visual"], self.epoch, i, "train"
+                )
+
             if self.cfg.has_decoder and plot:
                 # only eval images when plotting due to speed
                 if self.cfg.has_predictor and z_out is not None:
@@ -677,6 +684,13 @@ class Trainer:
             loss_components = {
                 key: value.mean().item() for key, value in loss_components.items()
             }
+
+            if (not self.cfg.has_decoder) and plot and self.cfg.training.get(
+                "log_ground_truth_mosaic", True
+            ):
+                self.plot_ground_truth_mosaic(
+                    obs["visual"], self.epoch, i, "valid"
+                )
 
             if self.cfg.has_decoder and plot:
                 # only eval images when plotting due to speed
@@ -877,19 +891,25 @@ class Trainer:
         log.info(log_msg)
 
         if 'train_bisim_loss' in epoch_log:
+            vinv = epoch_log.get('train_bisim_vicreg_inv', 0) or 0
+            vtot = epoch_log.get('train_bisim_vicreg_total', 0) or 0
+            vicreg_note = f"  VIC invar: {vinv:.4f}  VIC total block: {vtot:.4f}" if (vinv or vtot) else ""
             bisim_msg = f"Train:  Bisim_loss: {epoch_log.get('train_bisim_loss', 0):.4f}  \
                     z_loss: {epoch_log.get('train_z_loss', 0):.4f}  z_proprio_loss: {epoch_log.get('train_z_proprio_loss', 0):.4f} \
                     Bisim z_dist: {epoch_log.get('train_bisim_z_dist', 0):.4f}  Bisim r_dist: {epoch_log.get('train_bisim_r_dist', 0):.4f}  \
-                    Variance loss: {epoch_log.get('train_bisim_var_loss', 0):.4f}  Transition_dist (Covariance): {epoch_log.get('train_bisim_transition_dist', 0):.4f} \
-                    Covariance loss: {epoch_log.get('train_bisim_cov_reg', 0):.4f}"
+                    Var reg (comparable to PCA var col): {epoch_log.get('train_bisim_var_loss', 0):.4f}  Transition_dist: {epoch_log.get('train_bisim_transition_dist', 0):.4f} \
+                    Cov reg (comparable to PCA cov col): {epoch_log.get('train_bisim_cov_reg', 0):.4f}{vicreg_note}"
             log.info(bisim_msg)
 
         if 'val_bisim_loss' in epoch_log:
+            vinv = epoch_log.get('val_bisim_vicreg_inv', 0) or 0
+            vtot = epoch_log.get('val_bisim_vicreg_total', 0) or 0
+            vicreg_note = f"  VIC invar: {vinv:.4f}  VIC total block: {vtot:.4f}" if (vinv or vtot) else ""
             val_bisim_msg = f"Validation:  Bisim_loss: {epoch_log.get('val_bisim_loss', 0):.4f}  \
                     z_loss: {epoch_log.get('val_z_loss', 0):.4f}  z_proprio_loss: {epoch_log.get('val_z_proprio_loss', 0):.4f} \
                     Bisim z_dist: {epoch_log.get('val_bisim_z_dist', 0):.4f}  Bisim r_dist: {epoch_log.get('val_bisim_r_dist', 0):.4f}  \
-                    Variance loss: {epoch_log.get('val_bisim_var_loss', 0):.4f}  Transition_dist (Covariance): {epoch_log.get('val_bisim_transition_dist', 0):.4f} \
-                    Covariance loss: {epoch_log.get('val_bisim_cov_reg', 0):.4f}"
+                    Var reg: {epoch_log.get('val_bisim_var_loss', 0):.4f}  Transition_dist: {epoch_log.get('val_bisim_transition_dist', 0):.4f} \
+                    Cov reg: {epoch_log.get('val_bisim_cov_reg', 0):.4f}{vicreg_note}"
             log.info(val_bisim_msg)
 
         append_loss_to_csv(epoch_log, "training_loss_log.csv")
@@ -950,13 +970,63 @@ class Trainer:
             os.makedirs(phase, exist_ok=True)
         self.accelerator.wait_for_everyone()
 
+        wkey = None
+        if self.cfg.training.get("log_image_mosaics_to_wandb", True):
+            wkey = f"{phase}/recon_pred_mosaic"
         self.plot_imgs(
             imgs,
             num_columns=num_samples * num_frames,
             img_name=f"{phase}/{phase}_e{str(epoch).zfill(5)}_b{batch}.png",
+            wandb_key=wkey,
+            wandb_step=epoch,
         )
 
-    def plot_imgs(self, imgs, num_columns, img_name):
+    def plot_ground_truth_mosaic(
+        self, obs_visual, epoch, batch_idx, phase: str
+    ):
+        """
+        Save a panel of ground-truth RGB frames (rows = batch samples, columns = time).
+        Used when the world model has no image decoder, so we still get visual context.
+        """
+        if not self.accelerator.is_main_process:
+            return
+        if not self.cfg.training.get("log_ground_truth_mosaic", True):
+            return
+        n = min(
+            int(self.num_reconstruct_samples),
+            int(obs_visual.shape[0]),
+            8,
+        )
+        if n < 1:
+            return
+        x = obs_visual[:n].detach().cpu().float()
+        t = x.shape[1]
+        grid = rearrange(x, "n t c h w -> (n t) c h w")
+        img_name = f"{phase}/{phase}_gt_mosaic_e{str(epoch).zfill(5)}_b{batch_idx}.png"
+        wkey = f"{phase}/gt_frames" if self.cfg.training.get(
+            "log_image_mosaics_to_wandb", True
+        ) else None
+        self.plot_imgs(
+            grid,
+            num_columns=t,
+            img_name=img_name,
+            wandb_key=wkey,
+            wandb_step=epoch,
+        )
+
+    def plot_imgs(
+        self,
+        imgs,
+        num_columns,
+        img_name,
+        wandb_key=None,
+        wandb_step=None,
+    ):
+        if not self.accelerator.is_main_process:
+            return
+        out_dir = os.path.dirname(img_name)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
         utils.save_image(
             imgs,
             img_name,
@@ -964,10 +1034,26 @@ class Trainer:
             normalize=True,
             value_range=(-1, 1),
         )
+        if (
+            wandb_key
+            and self.cfg.training.get("log_image_mosaics_to_wandb", True)
+        ):
+            step = int(self.epoch) if wandb_step is None else int(wandb_step)
+            try:
+                self.wandb_run.log(
+                    {wandb_key: wandb.Image(img_name)}, step=step
+                )
+            except Exception as e:
+                log.warning("W&B image log failed for %s: %s", img_name, e)
 
 
 @hydra.main(config_path="conf", config_name="train")
 def main(cfg: OmegaConf):
+    if "DATASET_DIR" not in os.environ:
+        from hydra.utils import get_original_cwd
+
+        _default = (Path(get_original_cwd()) / "datasets" / "data").resolve()
+        os.environ["DATASET_DIR"] = str(_default)
     trainer = Trainer(cfg)
     trainer.run()
 
