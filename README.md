@@ -26,11 +26,13 @@ Our model operates in a latent space up to **10x smaller** than that of DINO-WM 
 
 ## Results
 
-We evaluate on PointMaze navigation under six test-time **sim** visual conditions: **NC** (no change, neutral background), **SC** (slight background change), **C** (tinted background), **LC** (large color shift), **LCG** (large color gradient), and **D** (distractors, including a moving highlight). The same six codes are used for PushT-style planning eval; rendering is set at **environment** time (e.g. `wall_env.visual_condition` / `pusht_env.visual_condition` in the planning config).
+We report planning **success rate** (mean over eval rollouts) under six test-time **sim** visual conditions: **NC** (no change, neutral background), **SC** (slight background change), **C** (tinted background), **LC** (large color shift), **LCG** (large color gradient), and **D** (distractors, including a moving highlight). The success **definition and scale** are task-specific: PointMaze uses goal proximity in \((x,y)\) (`point_maze_wrapper.eval_state`); PushT uses joint agent/block pose and angle in `env/pusht/pusht_wrapper.py` (`eval_state`). The planning loop aggregates SR the same way (mean of per-rollout `success` flags), but the two tasks are not directly comparable. Visual codes are the same in both settings; rendering is set at **environment** time (e.g. `wall_env.visual_condition` / `pusht_env.visual_condition` in the planning config). LaTeX sources for copy into the paper: `result_maze.tex`, `result_pushT.tex`.
 
 <p align="center">
   <img src="assets/backgrounds_pm.png" width="600">
 </p>
+
+### PointMaze (wall / dot navigation, `point_maze` dataset)
 
 | Model | NC | SC | C | LC | LCG | D |
 |-------|------|------|------|------|------|------|
@@ -40,7 +42,7 @@ We evaluate on PointMaze navigation under six test-time **sim** visual condition
 
 DINO-WM degrades under background changes (0.80 → 0.48 from NC to LCG). Domain randomization helps when test backgrounds resemble training augmentations but fails under larger shifts. Our model maintains consistent performance across all conditions.
 
-We further validate with different pretrained visual encoders:
+**Encoder comparison (PointMaze):**
 
 | Model | NC | SC | C | LC | LCG | D |
 |-------|------|------|------|------|------|------|
@@ -48,6 +50,25 @@ We further validate with different pretrained visual encoders:
 | **DINOv2** | **0.78** | **0.80** | **0.76** | **0.86** | **0.78** | **0.82** |
 | SimDINOv2 | 0.40 | 0.38 | 0.36 | 0.42 | 0.42 | 0.36 |
 | iBOT | 0.72 | 0.70 | 0.74 | 0.72 | 0.72 | 0.72 |
+
+### PushT (`pusht_noise` dataset)
+
+Success rates are **not** comparable to PointMaze numbers above. Fill in after running planning eval (e.g. `python eval_pusht_six_conditions.py ...`); placeholders are em dashes until measured.
+
+| Model | NC | SC | C | LC | LCG | D |
+|-------|------|------|------|------|------|------|
+| DINO-WM | — | — | — | — | — | — |
+| DINO-WM w/ DR | — | — | — | — | — | — |
+| **Ours (DINO-Bisim)** | **—** | **—** | **—** | **—** | **—** | **—** |
+
+**Encoder comparison (PushT):**
+
+| Model | NC | SC | C | LC | LCG | D |
+|-------|------|------|------|------|------|------|
+| No Encoder | — | — | — | — | — | — |
+| **DINOv2** | **—** | **—** | **—** | **—** | **—** | **—** |
+| SimDINOv2 | — | — | — | — | — | — |
+| iBOT | — | — | — | — | — | — |
 
 ## Getting Started
 

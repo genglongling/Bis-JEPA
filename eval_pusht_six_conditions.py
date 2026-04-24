@@ -126,10 +126,11 @@ def run_plan_pusht(
     # (capture_output=True hides all output until the process exits).
     kw: dict = dict(
         cwd=str(REPO_ROOT),
-        timeout=timeout_s,
         env=envp,
         text=True,
     )
+    if timeout_s and timeout_s > 0:
+        kw["timeout"] = timeout_s
     if capture_output:
         kw["capture_output"] = True
     else:
@@ -178,7 +179,13 @@ def main() -> None:
         default=[],
         help="Extra args forwarded to plan.py, e.g. --extra n_evals=20 goal_H=5",
     )
-    p.add_argument("--timeout", type=int, default=7200, help="Per-condition subprocess timeout (s).")
+    p.add_argument(
+        "--timeout",
+        type=int,
+        default=0,
+        help="Per-condition subprocess timeout in seconds. 0 = no limit (recommended for long MPC). "
+        "Default 0; use e.g. 14400 to cap a single plan run at 4h.",
+    )
     p.add_argument("--dry-run", action="store_true", help="Print plan commands only.")
     p.add_argument(
         "--output-json",
