@@ -98,6 +98,7 @@ def run_plan(
     extra_overrides: List[str],
     timeout_s: int,
     dry_run: bool,
+    wandb_logging: bool = True,
 ) -> subprocess.CompletedProcess:
     cmd = [
         sys.executable,
@@ -106,7 +107,7 @@ def run_plan(
         config_name,
         f"ckpt_base_path={ckpt_base_path}",
         f"model_name={model_name}",
-        "wandb_logging=false",
+        f"wandb_logging={str(wandb_logging).lower()}",
     ]
     if env == "wall":
         cmd.append(f"wall_env.visual_condition={visual_condition}")
@@ -136,6 +137,11 @@ def main() -> None:
     p.add_argument("--config", type=Path, default=REPO_ROOT / "evaluate_visual_grid_config.json")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--timeout", type=int, default=7200)
+    p.add_argument(
+        "--no-wandb",
+        action="store_true",
+        help="Disable Weights & Biases for each plan run (default: W&B on).",
+    )
     args = p.parse_args()
 
     cfg = load_config(args.config)
@@ -166,6 +172,7 @@ def main() -> None:
                 env=env,
                 config_name=config_name,
                 extra_overrides=extra_overrides,
+                wandb_logging=not args.no_wandb,
                 timeout_s=args.timeout,
                 dry_run=args.dry_run,
             )

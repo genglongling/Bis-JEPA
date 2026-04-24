@@ -288,7 +288,7 @@ python eval_pusht_six_conditions.py --model-name 2026-04-21/18-44-53 --ckpt-base
   --extra n_evals=20
 ```
 
-`model_name` is the folder under `outputs/` (often `YYYY-MM-DD/HH-MM-SS` from Hydra). See `python eval_pusht_six_conditions.py --help`.
+`model_name` is the folder under `outputs/` (often `YYYY-MM-DD/HH-MM-SS` from Hydra). Planning logs to **Weights & Biases** by default; use `--no-wandb` to disable. See `python eval_pusht_six_conditions.py --help`.
 
 A separate helper sweeps **multiple** checkpoints (e.g. ablation rows) via JSON config (`evaluate_visual_grid.py` and `evaluate_visual_grid_config_pusht.json`):
 

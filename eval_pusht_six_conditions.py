@@ -104,6 +104,7 @@ def run_plan_pusht(
     timeout_s: int,
     dry_run: bool,
     capture_output: bool = False,
+    wandb_logging: bool = True,
 ) -> subprocess.CompletedProcess:
     cmd: List[str] = [
         sys.executable,
@@ -112,7 +113,7 @@ def run_plan_pusht(
         config_name,
         f"ckpt_base_path={ckpt_base_path}",
         f"model_name={model_name}",
-        "wandb_logging=false",
+        f"wandb_logging={str(wandb_logging).lower()}",
         f"pusht_env.visual_condition={visual_condition}",
     ]
     cmd.extend(extra_overrides)
@@ -203,6 +204,11 @@ def main() -> None:
         action="store_true",
         help="Buffer plan.py output (only for debugging). Default is to stream logs live.",
     )
+    p.add_argument(
+        "--no-wandb",
+        action="store_true",
+        help="Do not log planning runs to Weights & Biases (default: W&B on).",
+    )
     args = p.parse_args()
     norm_conds: List[str] = []
     for c in args.conditions:
@@ -240,6 +246,7 @@ def main() -> None:
             timeout_s=args.timeout,
             dry_run=args.dry_run,
             capture_output=args.capture_output,
+            wandb_logging=not args.no_wandb,
         )
         if args.dry_run:
             continue
