@@ -1,0 +1,30 @@
+ckpt_base_path: ./
+model_name: 2026-04-21/18-44-53
+model_epoch: latest
+seed: 99
+n_evals: 50
+goal_source: dset
+goal_H: 5
+n_plot_samples: 10
+debug_dset_init: false
+objective:
+  _target_: planning.objectives.create_objective_fn
+  alpha: 1
+  base: 2
+  mode: last
+planner:
+  _target_: planning.mpc.MPCPlanner
+  max_iter: null
+  n_taken_actions: 5
+  sub_planner:
+    target: planning.cem.CEMPlanner
+    horizon: 5
+    topk: 30
+    num_samples: 300
+    var_scale: 1
+    opt_steps: 30
+    eval_every: 1
+  name: mpc_cem
+wandb_logging: false
+pusht_env:
+  visual_condition: NC
