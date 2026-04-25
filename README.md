@@ -181,7 +181,7 @@ End-to-end flow for a typical **local PushT** workflow (see `conf/train_local.ya
 
 6. **Sweeps** (optional): `python train_sweep.py ...` and `python evaluate_visual_grid.py --config ...` for multi–checkpoint tables.
 
-**Hydra tips:** any config value can be overridden on the command line, e.g. `training.epochs=2`, `regularization=pca`. Use `python train.py --config-name train_local --help` for the composed config (including nested keys).
+**Hydra tips:** any config value can be overridden on the command line, e.g. `training.epochs=2`, `regularization=pca` (paper-style bisim). Use `python train.py --config-name train_local --help` for the composed config (including nested keys).
 
 ## Training
 
@@ -207,7 +207,7 @@ Model checkpoints are saved to `<ckpt_base_path>/outputs/`. Set `ckpt_base_path`
 
 ### Local training (PushT, `train_local`)
 
-For single-GPU, non-Slurm runs the repo includes `conf/train_local.yaml` (default env: `pusht`, Hydra `basic` launcher). Example:
+For single-GPU, non-Slurm runs the repo includes `conf/train_local.yaml` (default env: `pusht`, Hydra `basic` launcher). **Defaults** match `train.yaml` on epochs (100), LRs, bisim, `num_hist`, etc., except **`regularization: vicreg`** (VICReg is the local default). For **PCA / paper-style** bisim, use `regularization=pca` or `train.yaml` on the cluster. For a **short smoke test**, `python train.py --config-name train_local training.epochs=2`.
 
 ```bash
 export DATASET_DIR=/path/to/datasets/data   # parent of `pusht_noise/`; see "Datasets" above
@@ -216,15 +216,17 @@ python train.py --config-name train_local
 
 `train.py` also defaults `DATASET_DIR` to `<cwd>/datasets/data` if the variable is unset. Training logs and `training_loss_log.csv` are written under the Hydra run directory, e.g. `outputs/YYYY-MM-DD/HH-MM-SS/`.
 
+**Learning curve & matched baselines (DINO-WM vs Ours):** plot `val_loss` vs epoch and optional vertical lines at 2, 10, 50, 100; overlay two `training_loss_log.csv` files to compare methods when **seed / data / budget** are matched. See `scripts/plot_learning_curve.py` and `docs/baseline_comparison.md`.
+
 **Image mosaics (train + val):** On the first batch of each phase per epoch, the trainer writes PNGs under `train/` and `valid/`. If `has_decoder: true`, the existing grid is [ground truth \| predicted future \| reconstructed]. If `has_decoder: false` (common in `train_local` with a frozen encoder and no VQ-VAE), `training.log_ground_truth_mosaic: true` (default) still saves a **ground-truth** frame grid so you can verify windows and data. W&B can log the same mosaics when `training.log_image_mosaics_to_wandb: true` (keys like `train/gt_frames`, `valid/gt_frames`, and `*/recon_pred_mosaic` with a decoder).
 
 ### Bisimulation regularization: PCA (default) vs VICReg
 
-Bisim can use either the **PCA / hinge** schedule plus **per-patch covariance** regularization (`regularization: pca`, or the legacy path when `regularization` is not `vicreg`), or a **VICReg**-style block on **mean-pooled** bisim features (`regularization: vicreg`). Coefficients for the latter are set with `vicreg_inv_coef`, `vicreg_var_coef`, `vicreg_cov_coef`, and `vicreg_std_min` in `conf/train_local.yaml` / `conf/train.yaml`. Use **PCA** for the original paper setup unless you are explicitly comparing to VICReg.
+Bisim can use either the **PCA / hinge** schedule plus **per-patch covariance** regularization (`regularization: pca`, or the legacy path when `regularization` is not `vicreg`), or a **VICReg**-style block on **mean-pooled** bisim features (`regularization: vicreg`). Coefficients for the latter are set with `vicreg_inv_coef`, `vicreg_var_coef`, `vicreg_cov_coef`, and `vicreg_std_min` in `conf/train_local.yaml` / `conf/train.yaml`. **`train_local` defaults to VICReg**; **`train.yaml` uses PCA** for the original paper-style setup. Override with `regularization=pca` or `regularization=vicreg` as needed.
 
 **Logging (apples-to-apples with PCA columns):** for VICReg, `train_bisim_var_loss` / `train_bisim_cov_reg` log the **VICReg variance-hinge** and **off-diagonal covariance** terms (weighted); `bisim_vicreg_inv` and `bisim_vicreg_total` report invariance and the full VIC block. For the PCA path, the variance and covariance columns are unchanged; the `vicreg_*` fields are zero. See `loss_history/loss_csv.py` and `models/bisim.py` for details.
 
-**Preliminary local metrics (PushT, `pusht_noise` full train/val, 2 epochs, comparable batch setup):** total loss in `training_loss_log.csv` (not planning success). These are for quick comparison only; the PCA run used an earlier config snapshot, while the VICReg run used `regularization: vicreg` in `train_local`.
+**Preliminary local metrics (PushT, `pusht_noise` full train/val, 2 epochs, comparable batch setup):** total loss in `training_loss_log.csv` (not planning success). **Historical snapshot** for PCA vs VICReg at 2 epochs. Current `train_local` uses **`regularization: vicreg`** and **`training.epochs: 100`** by default; for PCA as in `conf/train.yaml`, pass `regularization=pca`. See `docs/baseline_comparison.md` for seed/data/budget matching vs DINO-WM.
 
 | Regime | Epoch | train_loss | val_loss |
 |--------|--------|------------|----------|
