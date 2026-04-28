@@ -5,6 +5,30 @@ import json
 import numpy as np
 
 
+def weak_sigreg_loss(features: torch.Tensor, sketch_dim: int) -> torch.Tensor:
+    """
+    Weak-SIGReg (approx. Weak-SIGReg / covariance-to-identity): sketch features,
+    empirical covariance Frobenius distance to I. `features`: (N, D), returns scalar.
+
+    Sketching avoids huge cov when D is large (e.g. bisim patch dim).
+    """
+    if features.numel() == 0:
+        return torch.tensor(0.0, device=features.device, dtype=features.dtype)
+    n, d = features.shape
+    sd = sketch_dim if sketch_dim > 0 else min(64, d)
+    x = features
+    if d > sd:
+        s = torch.randn(sd, d, device=x.device, dtype=x.dtype) / (d ** 0.5)
+        x = x @ s.transpose(0, 1)
+    else:
+        sd = d
+    x = x - x.mean(dim=0, keepdim=True)
+    denom = max(float(n - 1), 1.0)
+    cov = (x.transpose(0, 1) @ x) / denom
+    target = torch.eye(sd, device=x.device, dtype=x.dtype)
+    return torch.norm(cov - target, p="fro")
+
+
 def build_mlp(input_dim, hidden_dim, output_dim, num_hidden_layers):
     layers = [nn.Linear(input_dim, hidden_dim), nn.ELU()]
     for _ in range(num_hidden_layers):
@@ -501,11 +525,13 @@ class BisimModel(nn.Module):
                         num_pcs: int = 10, PCAloss_epoch: int = 50,
                         regularization: str = "pca",
                         vicreg_inv_coef: float = 25.0, vicreg_var_coef: float = 25.0,
-                        vicreg_cov_coef: float = 1.0, vicreg_std_min: float = 1.0):
+                        vicreg_cov_coef: float = 1.0, vicreg_std_min: float = 1.0,
+                        sigreg_sketch_dim: int = 64):
         """
         Calculate bisimulation loss
         bisimulation metric: d(s1,s2) = |r(s1) - r(s2)| + γ · d(P(s1), P(s2)) + Variance Loss + Covariance Regularization
         If regularization == "vicreg", replaces the variance + per-patch covariance block with VICReg on pooled z, z2.
+        If regularization == "sigreg", uses Weak-SIGReg (covariance-to-identity) on pooled state pairs instead.
         "pca" and "default" are aliases (hinge var / PCA var after PCAloss_epoch + per-patch cov).
         input: z_bisim, z_bisim2: (b, t, num_patches, patch_dim)
                reward, reward2: (b, t, 1)
@@ -537,7 +563,9 @@ class BisimModel(nn.Module):
 
         transition_dist = transition_dist.unsqueeze(1).expand(-1, r_dist.shape[1])  # (b, t)
 
-        use_vicreg = str(regularization).lower() == "vicreg"
+        reg_lc = str(regularization).lower()
+        use_vicreg = reg_lc == "vicreg"
+        use_sigreg = reg_lc == "sigreg"
         if use_vicreg:
             v_total, inv_w, var_w, cov_w = self.vicreg_unsup(
                 z_bisim, z_bisim2, vicreg_inv_coef, vicreg_var_coef, vicreg_cov_coef, vicreg_std_min
@@ -555,6 +583,20 @@ class BisimModel(nn.Module):
             log_vicreg_inv = (inv_w * scale) * ones
             log_vicreg_var = (var_w * scale) * ones
             log_vicreg_cov = (cov_w * scale) * ones
+            log_vicreg_total = per_cell
+        elif use_sigreg:
+            z1_pool = z_bisim.mean(dim=2).reshape(-1, d)
+            z2_pool = z_bisim2.mean(dim=2).reshape(-1, d)
+            feat = torch.cat([z1_pool, z2_pool], dim=0)
+            sig = weak_sigreg_loss(feat, sigreg_sketch_dim) * var_loss_coef
+            scale_bt = 1.0 / (b * t + 1e-8)
+            ones_bt = torch.ones(b, t, device=z_bisim.device, dtype=z_bisim.dtype)
+            per_cell = (sig * scale_bt) * ones_bt
+            var_loss = per_cell
+            cov_reg = torch.zeros_like(var_loss)
+            log_vicreg_inv = torch.zeros_like(var_loss)
+            log_vicreg_var = per_cell
+            log_vicreg_cov = cov_reg
             log_vicreg_total = per_cell
         else:
             # 4. compute variance loss

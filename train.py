@@ -401,6 +401,7 @@ class Trainer:
             vicreg_var_coef=self.cfg.get('vicreg_var_coef', 25.0),
             vicreg_cov_coef=self.cfg.get('vicreg_cov_coef', 1.0),
             vicreg_std_min=self.cfg.get('vicreg_std_min', 1.0),
+            sigreg_sketch_dim=self.cfg.get('sigreg_sketch_dim', 64),
         )
 
     def init_optimizers(self):

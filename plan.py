@@ -474,6 +474,7 @@ def load_model(model_ckpt, train_cfg, num_action_repeat, device):
             "vicreg_var_coef": train_cfg.get('vicreg_var_coef', 25.0),
             "vicreg_cov_coef": train_cfg.get('vicreg_cov_coef', 1.0),
             "vicreg_std_min": train_cfg.get('vicreg_std_min', 1.0),
+            "sigreg_sketch_dim": train_cfg.get('sigreg_sketch_dim', 64),
         })
 
     model = hydra.utils.instantiate(

@@ -45,6 +45,7 @@ class VWorldModel(nn.Module):
         vicreg_var_coef: float = 25.0,
         vicreg_cov_coef: float = 1.0,
         vicreg_std_min: float = 1.0,
+        sigreg_sketch_dim: int = 64,
     ):
         super().__init__()
         self.num_hist = num_hist
@@ -151,6 +152,7 @@ class VWorldModel(nn.Module):
         self.vicreg_var_coef = vicreg_var_coef
         self.vicreg_cov_coef = vicreg_cov_coef
         self.vicreg_std_min = vicreg_std_min
+        self.sigreg_sketch_dim = sigreg_sketch_dim
 
     def train(self, mode=True):
         super().train(mode)
@@ -306,6 +308,7 @@ class VWorldModel(nn.Module):
                         self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
                         self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
                         self.vicreg_cov_coef, self.vicreg_std_min,
+                        self.sigreg_sketch_dim,
                     )
                 else:
                     (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
@@ -316,6 +319,7 @@ class VWorldModel(nn.Module):
                         self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
                         self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
                         self.vicreg_cov_coef, self.vicreg_std_min,
+                        self.sigreg_sketch_dim,
                     )
 
                 bisim_loss = bisim_loss[:batch_size]
@@ -343,6 +347,7 @@ class VWorldModel(nn.Module):
                         self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
                         self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
                         self.vicreg_cov_coef, self.vicreg_std_min,
+                        self.sigreg_sketch_dim,
                     )
                 else:
                     (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
@@ -352,6 +357,7 @@ class VWorldModel(nn.Module):
                         self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
                         self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
                         self.vicreg_cov_coef, self.vicreg_std_min,
+                        self.sigreg_sketch_dim,
                     )
         else:
             # memory buffer disabled or eval mode
@@ -368,6 +374,7 @@ class VWorldModel(nn.Module):
                     self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
                     self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
                     self.vicreg_cov_coef, self.vicreg_std_min,
+                    self.sigreg_sketch_dim,
                 )
             else:
                 (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
@@ -377,6 +384,7 @@ class VWorldModel(nn.Module):
                     self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
                     self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
                     self.vicreg_cov_coef, self.vicreg_std_min,
+                    self.sigreg_sketch_dim,
                 )
 
         if self.training:
