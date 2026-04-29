@@ -1,3 +1,0 @@
-[2026-04-23 15:21:21,681][__main__][INFO] - Planning result saved dir: /home/gloria/Bis-JEPA/plan_outputs/20260423152121_2026-04-21_18-44-53_gH5
-[2026-04-23 15:21:21,715][__main__][INFO] - Loading model config from /home/gloria/Bis-JEPA/outputs/2026-04-21/18-44-53/hydra.yaml
-[2026-04-23 15:21:23,528][dinov2][INFO] - using MLP layer as FFN
