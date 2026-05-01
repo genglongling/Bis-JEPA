@@ -22,6 +22,7 @@ import json
 import os
 import re
 import subprocess
+from subprocess import TimeoutExpired
 import sys
 import time
 from datetime import datetime
@@ -75,6 +76,38 @@ def find_latest_plan_output_dir(model_name: str, since_t: float) -> Optional[Pat
     preferred = [p for p in candidates if tag in p.name or model_name.replace("/", "_") in p.name]
     pool = preferred if preferred else candidates
     return max(pool, key=lambda p: p.stat().st_mtime)
+
+
+def resolve_plan_output_dir(repo_root: Path, model_name: str, since_t: float) -> Optional[Path]:
+    """
+    When plan.py stdout is not captured, find the Hydra run dir written by subprocess.run:
+    newest plan_outputs/*/logs.json with a finished final_eval line and mtime after this run began.
+    """
+    root = repo_root / "plan_outputs"
+    if not root.is_dir():
+        return None
+    tag_slash = model_name.replace("/", "_")
+    sanitized = _sanitize_tag(model_name)
+    candidates: List[tuple[bool, float, Path]] = []
+    for p in root.iterdir():
+        if not p.is_dir():
+            continue
+        lj = p / "logs.json"
+        if not lj.is_file():
+            continue
+        try:
+            log_mtime = lj.stat().st_mtime
+        except OSError:
+            continue
+        if log_mtime < since_t - 30:
+            continue
+        if parse_final_success_rate(lj) is None:
+            continue
+        name_hit = sanitized in p.name or tag_slash in p.name
+        candidates.append((name_hit, log_mtime, p))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda x: (x[0], x[1]))[2]
 
 
 def parse_final_success_rate(logs_json: Path) -> Optional[float]:
@@ -237,17 +270,22 @@ def main() -> None:
                 flush=True,
             )
         t0 = time.time()
-        proc = run_plan_pusht(
-            ckpt_base_path=args.ckpt_base_path,
-            model_name=model_name,
-            visual_condition=cond,
-            config_name=args.config_name,
-            extra_overrides=args.extra_hydra,
-            timeout_s=args.timeout,
-            dry_run=args.dry_run,
-            capture_output=args.capture_output,
-            wandb_logging=not args.no_wandb,
-        )
+        try:
+            proc = run_plan_pusht(
+                ckpt_base_path=args.ckpt_base_path,
+                model_name=model_name,
+                visual_condition=cond,
+                config_name=args.config_name,
+                extra_overrides=args.extra_hydra,
+                timeout_s=args.timeout,
+                dry_run=args.dry_run,
+                capture_output=args.capture_output,
+                wandb_logging=not args.no_wandb,
+            )
+        except TimeoutExpired as exc:
+            print(f"FAILED {cond} — subprocess timeout ({args.timeout}s): {exc}", file=sys.stderr)
+            failed.append(cond)
+            continue
         if args.dry_run:
             continue
         if proc.returncode != 0:
@@ -258,7 +296,9 @@ def main() -> None:
             continue
         out_dir = extract_planning_result_dir(proc.stdout or "")
         if not out_dir:
-            guessed = find_latest_plan_output_dir(model_name, t0)
+            guessed = resolve_plan_output_dir(REPO_ROOT, model_name, t0)
+            if guessed is None:
+                guessed = find_latest_plan_output_dir(model_name, t0)
             out_dir = str(guessed) if guessed else None
         plan_out_dirs[cond] = out_dir
         if not out_dir:

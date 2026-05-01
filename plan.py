@@ -381,14 +381,15 @@ class PlanWorkspace:
         )
         logs = {f"final_eval/{k}": v for k, v in logs.items()}
         self.wandb_run.log(logs)
-        logs_entry = {
-            key: (
-                value.item()
-                if isinstance(value, (np.float32, np.int32, np.int64))
-                else value
-            )
-            for key, value in logs.items()
-        }
+
+        def _json_val(value):
+            if isinstance(value, np.ndarray):
+                return value.tolist()
+            if isinstance(value, np.generic):
+                return value.item()
+            return value
+
+        logs_entry = {key: _json_val(value) for key, value in logs.items()}
         with open(self.log_filename, "a") as file:
             file.write(json.dumps(logs_entry) + "\n")
         return logs

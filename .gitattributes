@@ -1,0 +1,2 @@
+outputs/** filter=lfs diff=lfs merge=lfs -text
+plan_outputs/** filter=lfs diff=lfs merge=lfs -text

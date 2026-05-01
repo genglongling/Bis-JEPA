@@ -26,14 +26,14 @@ class BasePlanner(ABC):
         self.log_filename = log_filename  # do not log if None
 
     def dump_logs(self, logs):
-        logs_entry = {
-            key: (
-                value.item()
-                if isinstance(value, (np.float32, np.int32, np.int64))
-                else value
-            )
-            for key, value in logs.items()
-        }
+        def _json_val(value):
+            if isinstance(value, np.ndarray):
+                return value.tolist()
+            if isinstance(value, np.generic):
+                return value.item()
+            return value
+
+        logs_entry = {key: _json_val(value) for key, value in logs.items()}
         if self.log_filename is not None:
             with open(self.log_filename, "a") as file:
                 file.write(json.dumps(logs_entry) + "\n")
