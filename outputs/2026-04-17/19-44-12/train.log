@@ -1,6 +1,0 @@
-[2026-04-17 19:44:12,422][__main__][INFO] - Model saved dir: /home/gloria/Bis-JEPA/outputs/2026-04-17/19-44-12
-[2026-04-17 19:44:12,450][__main__][INFO] - rank: 0  model_name: 2026-04-17/19-44-12_pusht_f5_h3_p1
-[2026-04-17 19:44:12,450][__main__][INFO] - device: cuda   model_name: 2026-04-17/19-44-12_pusht_f5_h3_p1
-[2026-04-17 19:44:22,191][__main__][INFO] - Loading dataset from /home/gloria/Bis-JEPA/datasets/data/pusht_noise ...
-[2026-04-17 19:44:23,257][__main__][INFO] - dataloader batch size: 40
-[2026-04-17 19:44:23,257][__main__][INFO] - Train encoder, predictor, decoder, bisim, train_w_std_loss, train_w_reward_loss:            False,            True,            True,            True,            True,            False

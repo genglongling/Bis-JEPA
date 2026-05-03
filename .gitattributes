@@ -1,2 +1,2 @@
-outputs/** filter=lfs diff=lfs merge=lfs -text
-plan_outputs/** filter=lfs diff=lfs merge=lfs -text
+# Plain Git checkpoint (avoid global/user LFS .pth rules on add)
+outputs/2026-04-26/23-20-39/checkpoints/model_20.pth -filter -diff -merge binary

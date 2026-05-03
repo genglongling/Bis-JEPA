@@ -1,18 +1,29 @@
 __pycache__
 .idea
 *.pyc
-outputs
+
+# Ignore outputs except one tracked checkpoint (plain Git, no LFS)
+outputs/**
+!outputs/2026-04-26/
+outputs/2026-04-26/**
+!outputs/2026-04-26/23-20-39/
+outputs/2026-04-26/23-20-39/**
+!outputs/2026-04-26/23-20-39/checkpoints/
+outputs/2026-04-26/23-20-39/checkpoints/**
+!outputs/2026-04-26/23-20-39/checkpoints/model_20.pth
+
 plan_outputs
 SimDINO
 ibot
 
-# Local datasets & checkpoints (too large for GitHub; use OSF / host storage + DATASET_DIR)
 datasets/data/
 data/
 *.pth
-!released_checkpoints/
-!released_checkpoints/*.pth
 checkpoints/
+!outputs/2026-04-26/23-20-39/checkpoints/
 .venv/
 .venv_train/
 wandb/
+
+# After *.pth: allow tracking this file only
+!outputs/2026-04-26/23-20-39/checkpoints/model_20.pth
