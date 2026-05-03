@@ -13,7 +13,7 @@ To compare **DINO-WM** and **Ours (Bis-JEPA)** in a paper, the runs must share t
    - DINO-WM: set their run seed to the same value if their launcher exposes it; note it in the paper.
 
 3. **Budget (epochs, batch, architecture flags)**  
-   - For **DINO-WM / PCA-style bisim** comparisons, align with `conf/train.yaml`: e.g. `training.epochs=100`, `batch_size=40`, `num_hist: 3`, `regularization: pca`. For **VICReg** (default in `conf/train_local.yaml`), set the same budget but state `regularization: vicreg` in the table footnote.  
+   - For **DINO-WM / PCA-style bisim** comparisons, align with `conf/train.yaml` or `conf/train_local.yaml`: e.g. `training.epochs=100`, `batch_size=40`, `num_hist: 3`, `regularization: pca`. For **VICReg** auxiliary, set the same budget but state `regularization: vicreg` in the table footnote.  
    - DINO-WM: use **their** published training recipe *or* the **same** epoch and batch size as you use for Ours, and state any residual differences (e.g. their default vs your `num_hist`).
 
 4. **Planning eval (after training)**  
@@ -44,4 +44,4 @@ DINO-WM is trained in [their repository](https://github.com/gaoyuezhou/dino_wm);
 
 ## `train_local` vs `train`
 
-`conf/train_local.yaml` is **single-GPU, local** only (`hydra/launcher: basic`). It matches `conf/train.yaml` on epochs, LRs, bisim, `num_hist`, and most flags, but **defaults to `regularization: vicreg`**; `conf/train.yaml` uses **`regularization: pca`**. Slurm and GPU type in `train.yaml` are for the cluster; use `regularization=pca` in local runs to match the paper/PCA training path.
+`conf/train_local.yaml` is **single-GPU, local** only (`hydra/launcher: basic`). It matches `conf/train.yaml` on epochs, LRs, bisim, `num_hist`, **`regularization: pca`**, and most flags. Slurm and GPU type in `train.yaml` are for the cluster. Use **`regularization=vicreg`** locally for VicReg auxiliary.

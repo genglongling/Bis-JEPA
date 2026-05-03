@@ -207,7 +207,7 @@ Model checkpoints are saved to `<ckpt_base_path>/outputs/`. Set `ckpt_base_path`
 
 ### Local training (PushT, `train_local`)
 
-For single-GPU, non-Slurm runs the repo includes `conf/train_local.yaml` (default env: `pusht`, Hydra `basic` launcher). **Defaults** match `train.yaml` on epochs (100), LRs, bisim, `num_hist`, etc., except **`regularization: vicreg`** (VICReg is the local default). For **PCA / paper-style** bisim, use `regularization=pca` or `train.yaml` on the cluster. For a **short smoke test**, `python train.py --config-name train_local training.epochs=2`.
+For single-GPU, non-Slurm runs the repo includes `conf/train_local.yaml` (default env: `pusht`, Hydra `basic` launcher). **Defaults** match `train.yaml` on epochs (100), LRs, bisim, `num_hist`, **`regularization: pca`**, etc. Use **`regularization=vicreg`** locally for VicReg auxiliary. For a **short smoke test**, `python train.py --config-name train_local training.epochs=2`.
 
 ```bash
 export DATASET_DIR=/path/to/datasets/data   # parent of `pusht_noise/`; see "Datasets" above
@@ -222,11 +222,11 @@ python train.py --config-name train_local
 
 ### Bisimulation regularization: PCA (default) vs VICReg
 
-Bisim can use either the **PCA / hinge** schedule plus **per-patch covariance** regularization (`regularization: pca`, or the legacy path when `regularization` is not `vicreg`), or a **VICReg**-style block on **mean-pooled** bisim features (`regularization: vicreg`). Coefficients for the latter are set with `vicreg_inv_coef`, `vicreg_var_coef`, `vicreg_cov_coef`, and `vicreg_std_min` in `conf/train_local.yaml` / `conf/train.yaml`. **`train_local` defaults to VICReg**; **`train.yaml` uses PCA** for the original paper-style setup. Override with `regularization=pca`, `regularization=vicreg`, or **`regularization=sigreg`** for **Weak-SIGReg** on mean-pooled bisim features (`sigreg_sketch_dim` in the yaml defaults to 64). See `weak_sigreg_loss` in `models/bisim.py`.
+Bisim can use either the **PCA / hinge** schedule plus **per-patch covariance** regularization (`regularization: pca`, or the legacy path when `regularization` is not `vicreg`), or a **VICReg**-style block on **mean-pooled** bisim features (`regularization: vicreg`). Coefficients for VicReg are set with `vicreg_inv_coef`, `vicreg_var_coef`, `vicreg_cov_coef`, and `vicreg_std_min` in `conf/train_local.yaml` / `conf/train.yaml`. **`train_local` and `train.yaml` both default to `regularization: pca`**. Override with `regularization=vicreg`, or **`regularization=sigreg`** for **Weak-SIGReg** on mean-pooled bisim features (`sigreg_sketch_dim` in the yaml defaults to 64). See `weak_sigreg_loss` in `models/bisim.py`.
 
 **Logging (apples-to-apples with PCA columns):** for VICReg, `train_bisim_var_loss` / `train_bisim_cov_reg` log the **VICReg variance-hinge** and **off-diagonal covariance** terms (weighted); `bisim_vicreg_inv` and `bisim_vicreg_total` report invariance and the full VIC block. For the PCA path, the variance and covariance columns are unchanged; the `vicreg_*` fields are zero. See `loss_history/loss_csv.py` and `models/bisim.py` for details.
 
-**Preliminary local metrics (PushT, `pusht_noise` full train/val, 2 epochs, comparable batch setup):** total loss in `training_loss_log.csv` (not planning success). **Historical snapshot** for PCA vs VICReg at 2 epochs. Current `train_local` uses **`regularization: vicreg`** and **`training.epochs: 100`** by default; for PCA as in `conf/train.yaml`, pass `regularization=pca`. See `docs/baseline_comparison.md` for seed/data/budget matching vs DINO-WM.
+**Preliminary local metrics (PushT, `pusht_noise` full train/val, 2 epochs, comparable batch setup):** total loss in `training_loss_log.csv` (not planning success). **Historical snapshot** for PCA vs VICReg at 2 epochs. Default `train_local` uses **`regularization: pca`** and **`training.epochs: 100`**; use **`regularization=vicreg`** for VicReg runs. See `docs/baseline_comparison.md` for seed/data/budget matching vs DINO-WM.
 
 | Regime | Epoch | train_loss | val_loss |
 |--------|--------|------------|----------|

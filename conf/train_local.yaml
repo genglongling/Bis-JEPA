@@ -1,5 +1,5 @@
-# Local single-process training (no Slurm). Same as train.yaml except hydra/launcher: basic and
-# regularization: vicreg (default here). Paper/PCA-style: regularization=pca. Quick tests: training.epochs=2
+# Local single-process training (no Slurm). Same as train.yaml except hydra/launcher: basic.
+# Default regularization matches train.yaml (pca); use regularization=vicreg for VicReg auxiliary. Quick tests: training.epochs=2
 defaults:
   - _self_
   - env: pusht
@@ -21,8 +21,8 @@ hydra:
     dir: ${ckpt_base_path}/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
     subdir: ${hydra.job.num}
 
-# Bisim regularization: VICReg default for local runs; use regularization=pca to match conf/train.yaml
-regularization: vicreg
+# Bisim extra regularization: "pca" (hinge/PCA var schedule + per-patch cov) or "vicreg"/"sigreg"
+regularization: pca
 vicreg_inv_coef: 25.0
 vicreg_var_coef: 25.0
 vicreg_cov_coef: 1.0
@@ -64,7 +64,7 @@ var_loss_coef: 1
 PCA1_loss_target: 0.0001
 VC_target: 0.5
 num_pcs: 10
-PCAloss_epoch: 2000
+PCAloss_epoch: 50
 bisim_memory_buffer_size: 1000
 bisim_comparison_size: 200
 
