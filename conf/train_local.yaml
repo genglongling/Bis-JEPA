@@ -12,6 +12,8 @@ defaults:
 
 ckpt_base_path: ./
 
+wandb_display_name: null
+
 hydra:
   run:
     dir: ${ckpt_base_path}/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}

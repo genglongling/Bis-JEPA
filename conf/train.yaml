@@ -11,6 +11,9 @@ defaults:
 # base path to save model outputs. Checkpoints will be saved to ${ckpt_base_path}/outputs.
 ckpt_base_path: ./ # put absolute path here
 
+# If set (non-null, non-empty), overrides the default wandb.run.name built from Hydra dirname + env/skip/hist keys.
+wandb_display_name: null
+
 hydra:
   run:
     dir: ${ckpt_base_path}/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
@@ -69,7 +72,7 @@ var_loss_coef: 1
 PCA1_loss_target: 0.0001
 VC_target: 0.5  # lowered from 1.0 — DINOv2 natural variance ~0.3, old target was unreachable
 num_pcs: 10
-PCAloss_epoch: 2000
+PCAloss_epoch: 50
 bisim_memory_buffer_size: 1000  # Size of memory buffer for cross-batch bisimulation (0 = disabled)
 bisim_comparison_size: 200  # Total number of states to compare in bisimulation learning
 

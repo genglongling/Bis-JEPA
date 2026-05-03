@@ -110,7 +110,11 @@ class Trainer:
             OmegaConf.set_struct(cfg, False)
             cfg.wandb_run_id = self.wandb_run.id
             OmegaConf.set_struct(cfg, True)
-            wandb.run.name = "{}".format(model_name)
+            display_name = OmegaConf.select(self.cfg, "wandb_display_name")
+            if isinstance(display_name, str) and display_name.strip():
+                wandb.run.name = display_name.strip()
+            else:
+                wandb.run.name = "{}".format(model_name)
             with open(os.path.join(os.getcwd(), "hydra.yaml"), "w") as f:
                 f.write(OmegaConf.to_yaml(cfg, resolve=True))
 
