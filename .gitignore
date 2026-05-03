@@ -8,6 +8,7 @@ outputs/**
 outputs/2026-04-26/**
 !outputs/2026-04-26/23-20-39/
 outputs/2026-04-26/23-20-39/**
+!outputs/2026-04-26/23-20-39/hydra.yaml
 !outputs/2026-04-26/23-20-39/checkpoints/
 outputs/2026-04-26/23-20-39/checkpoints/**
 !outputs/2026-04-26/23-20-39/checkpoints/model_20.pth
