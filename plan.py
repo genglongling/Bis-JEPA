@@ -397,6 +397,16 @@ class PlanWorkspace:
 
 def load_ckpt(snapshot_path, device):
     with snapshot_path.open("rb") as f:
+        head = f.read(120)
+        if head.startswith(b"version https://git-lfs.github.com/spec/v1"):
+            raise ValueError(
+                f"{snapshot_path} is a Git LFS pointer (small text starting with "
+                "'version …'), not a real PyTorch checkpoint. Replace it with the "
+                "binary .pth, e.g. `git fetch && git checkout origin/main -- "
+                "outputs/2026-04-26/23-20-39/checkpoints/model_20.pth`, or curl/scp "
+                "the blob from GitHub / your training machine."
+            )
+        f.seek(0)
         payload = torch.load(f, map_location=device)
     loaded_keys = []
     result = {}
