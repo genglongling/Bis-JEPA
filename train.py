@@ -156,6 +156,7 @@ class Trainer:
         self.action_encoder = None
         self.proprio_encoder = None
         self.predictor = None
+        self.predictor_dinowm = None
         self.decoder = None
         self.bisim_model = None  # Initialize bisim_model as None
         self.train_encoder = self.cfg.model.train_encoder
@@ -182,6 +183,16 @@ class Trainer:
         self._keys_to_save += (
             ["predictor", "predictor_optimizer"]
             if self.train_predictor and self.cfg.has_predictor
+            else []
+        )
+        self._keys_to_save += (
+            ["predictor_dinowm"]
+            if (
+                self.train_predictor
+                and self.cfg.has_predictor
+                and self.cfg.get("train_dinowm_aux", False)
+                and self.cfg.get("has_bisim", False)
+            )
             else []
         )
         self._keys_to_save += (
@@ -284,7 +295,7 @@ class Trainer:
             if self.predictor is None:
                 if self.cfg.get('has_bisim', False):
                     # use bisim latent dim
-                    visual_emb_dim = self.cfg.get('bisim_latent_dim', 8)
+                    visual_emb_dim = self.cfg.get('bisim_latent_dim', 32)
                     log.info(f"Initializing predictor with bisimulation latent dim: {visual_emb_dim}")
                 else:
                     # use standard encoder dim
@@ -304,6 +315,32 @@ class Trainer:
                 )
             if not self.train_predictor:
                 for param in self.predictor.parameters():
+                    param.requires_grad = False
+
+        train_dinowm_aux = (
+            self.cfg.get("train_dinowm_aux", False)
+            and self.cfg.get("has_bisim", False)
+            and self.cfg.has_predictor
+        )
+        if train_dinowm_aux:
+            if self.predictor_dinowm is None:
+                dinowm_visual_dim = self.encoder.emb_dim
+                log.info(
+                    f"Initializing DINO-WM auxiliary predictor (dim={dinowm_visual_dim})"
+                )
+                self.predictor_dinowm = hydra.utils.instantiate(
+                    self.cfg.predictor,
+                    num_patches=num_patches,
+                    num_frames=self.cfg.num_hist,
+                    dim=dinowm_visual_dim
+                    + (
+                        proprio_emb_dim * self.cfg.num_proprio_repeat
+                        + action_emb_dim * self.cfg.num_action_repeat
+                    )
+                    * (self.cfg.concat_dim),
+                )
+            if not self.cfg.get("train_dinowm_predictor", True):
+                for param in self.predictor_dinowm.parameters():
                     param.requires_grad = False
 
         # initialize decoder
@@ -348,16 +385,20 @@ class Trainer:
 
                 self.bisim_model = BisimModel(
                     input_dim=input_dim,
-                    latent_dim=self.cfg.get('bisim_latent_dim', 8),
+                    latent_dim=self.cfg.get('bisim_latent_dim', 32),
                     hidden_dim=self.cfg.get('bisim_hidden_dim', 256),
                     action_dim=self.cfg.action_emb_dim,
                     bypass_dinov2=self.cfg.model.get('bypass_dinov2', False),
                     img_size=self.cfg.img_size,
                     num_patches=num_patches,
                     patch_emb_dim=self.encoder.emb_dim,  # 384 for DINOv2, 768 for SimDINOv2
+                    pos_encoding=self.cfg.get('bisim_pos_encoding', 'grid_mlp'),
+                    pos_hidden_dim=self.cfg.get(
+                        'bisim_pos_hidden_dim', self.cfg.get('bisim_hidden_dim', 256)
+                    ),
                 )
                 bypass_mode = self.cfg.model.get('bypass_dinov2', False)
-                log.info(f"Initialized bisimulation model with latent dim {self.cfg.get('bisim_latent_dim', 64)}")
+                log.info(f"Initialized bisimulation model with latent dim {self.cfg.get('bisim_latent_dim', 32)}")
                 log.info(f"Bypass encoder mode: {bypass_mode}")
                 encoder_name = getattr(self.encoder, 'name', 'encoder')
                 if bypass_mode:
@@ -369,8 +410,17 @@ class Trainer:
                 for param in self.bisim_model.parameters():
                     param.requires_grad = False
 
-        self.encoder, self.predictor, self.decoder, self.bisim_model = self.accelerator.prepare(
-            self.encoder, self.predictor, self.decoder, self.bisim_model
+        self.encoder, self.predictor = self.accelerator.prepare(self.encoder, self.predictor)
+        if self.decoder is not None:
+            self.decoder = self.accelerator.prepare(self.decoder)
+        if self.bisim_model is not None:
+            self.bisim_model = self.accelerator.prepare(self.bisim_model)
+        if self.predictor_dinowm is not None:
+            self.predictor_dinowm = self.accelerator.prepare(self.predictor_dinowm)
+        train_dinowm_aux = (
+            self.cfg.get("train_dinowm_aux", False)
+            and self.cfg.get("has_bisim", False)
+            and self.predictor_dinowm is not None
         )
         self.model = hydra.utils.instantiate(
             self.cfg.model,
@@ -378,6 +428,7 @@ class Trainer:
             proprio_encoder=self.proprio_encoder,
             action_encoder=self.action_encoder,
             predictor=self.predictor,
+            predictor_dinowm=self.predictor_dinowm,
             decoder=self.decoder,
             bisim_model=self.bisim_model,
             proprio_dim=proprio_emb_dim,
@@ -388,11 +439,13 @@ class Trainer:
             VC_target=self.cfg.get('VC_target', 1.0),
             num_pcs=self.cfg.get('num_pcs', 10),
             PCAloss_epoch=self.cfg.get('PCAloss_epoch', 10),
-            bisim_latent_dim=self.cfg.get('bisim_latent_dim', 8),
+            bisim_latent_dim=self.cfg.get('bisim_latent_dim', 32),
             bisim_hidden_dim=self.cfg.get('bisim_hidden_dim', 256),
             num_action_repeat=self.cfg.num_action_repeat,
             num_proprio_repeat=self.cfg.num_proprio_repeat,
             bisim_coef=self.cfg.get('bisim_coef', 1.0),
+            dinowm_coef=self.cfg.get('dinowm_coef', 1.0),
+            train_dinowm_aux=train_dinowm_aux,
             train_bisim=self.train_bisim,
             train_w_std_loss=self.train_w_std_loss,
             train_w_reward_loss=self.train_w_reward_loss,
@@ -406,6 +459,8 @@ class Trainer:
             vicreg_cov_coef=self.cfg.get('vicreg_cov_coef', 1.0),
             vicreg_std_min=self.cfg.get('vicreg_std_min', 1.0),
             sigreg_sketch_dim=self.cfg.get('sigreg_sketch_dim', 64),
+            bisim_transition_target=self.cfg.get('bisim_transition_target', 'predictor'),
+            bisim_latent_metric=self.cfg.get('bisim_latent_metric', 'l2'),
         )
 
     def init_optimizers(self):
@@ -416,14 +471,16 @@ class Trainer:
         self.encoder_optimizer = self.accelerator.prepare(self.encoder_optimizer)
 
         if self.cfg.get('has_bisim', False) and self.train_bisim:
-            self.bisim_optimizer = torch.optim.Adam(
+            self.bisim_optimizer = torch.optim.AdamW(
                 self.bisim_model.parameters(),
-                lr=self.cfg.training.get('bisim_lr', 1e-4),
+                lr=self.cfg.training.get('bisim_lr', 5e-7),
             )
             self.bisim_optimizer = self.accelerator.prepare(self.bisim_optimizer)
 
         if self.cfg.has_predictor:
             predictor_params = list(self.predictor.parameters())
+            if self.predictor_dinowm is not None:
+                predictor_params += list(self.predictor_dinowm.parameters())
 
             self.predictor_optimizer = torch.optim.AdamW(
                 predictor_params,
@@ -444,7 +501,7 @@ class Trainer:
             )
 
         if self.cfg.has_decoder:
-            self.decoder_optimizer = torch.optim.Adam(
+            self.decoder_optimizer = torch.optim.AdamW(
                 self.decoder.parameters(), lr=self.cfg.training.decoder_lr
             )
             self.decoder_optimizer = self.accelerator.prepare(self.decoder_optimizer)

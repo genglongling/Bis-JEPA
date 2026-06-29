@@ -1,0 +1,14 @@
+# Local single-GPU DINO-WM baseline. Same data/budget as train_local, without bisimulation.
+defaults:
+  - train_local
+  - _self_
+
+wandb_display_name: dinowm
+
+has_bisim: False
+
+train_dinowm_aux: False
+
+model:
+  train_bisim: False
+  train_dinowm_predictor: False

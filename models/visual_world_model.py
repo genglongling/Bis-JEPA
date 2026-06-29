@@ -17,9 +17,12 @@ class VWorldModel(nn.Module):
             decoder,
             predictor,
             bisim_model=None,
+            predictor_dinowm=None,
             bisim_latent_dim=32,
             bisim_hidden_dim=256,
             bisim_coef=1.0,
+            dinowm_coef=1.0,
+            train_dinowm_aux=False,
             var_loss_coef: float=1.0,
             PCA1_loss_target: float=0.01,
             VC_target: float=1.0,
@@ -46,6 +49,8 @@ class VWorldModel(nn.Module):
         vicreg_cov_coef: float = 1.0,
         vicreg_std_min: float = 1.0,
         sigreg_sketch_dim: int = 64,
+        bisim_transition_target: str = "predictor",
+        bisim_latent_metric: str = "l2",
     ):
         super().__init__()
         self.num_hist = num_hist
@@ -55,6 +60,7 @@ class VWorldModel(nn.Module):
         self.action_encoder = action_encoder
         self.decoder = decoder  # decoder could be None
         self.predictor = predictor  # predictor could be None
+        self.predictor_dinowm = predictor_dinowm
         self.train_encoder = train_encoder
         self.train_predictor = train_predictor
         self.train_decoder = train_decoder
@@ -67,6 +73,12 @@ class VWorldModel(nn.Module):
         self.has_bisim = bisim_model is not None
         self.bypass_dinov2 = bypass_dinov2
         self._bisim_encode_logged = False
+        self.dinowm_coef = dinowm_coef
+        self.train_dinowm_aux = (
+            train_dinowm_aux and self.has_bisim and predictor_dinowm is not None
+        )
+        if self.train_dinowm_aux:
+            print(f"DINO-WM auxiliary JEPA head enabled (dinowm_coef={self.dinowm_coef})")
 
         if self.has_bisim:
             self.bisim_model = bisim_model
@@ -153,6 +165,32 @@ class VWorldModel(nn.Module):
         self.vicreg_cov_coef = vicreg_cov_coef
         self.vicreg_std_min = vicreg_std_min
         self.sigreg_sketch_dim = sigreg_sketch_dim
+        self.bisim_transition_target = bisim_transition_target
+        self.bisim_latent_metric = bisim_latent_metric
+
+    def _use_predictor_bisim_target(self, z_src, z_pred, memory_cross_batch=False):
+        if memory_cross_batch:
+            return False
+        return (
+            self.bisim_transition_target == "predictor"
+            and z_src is not None
+            and z_pred is not None
+            and self.predictor is not None
+        )
+
+    def _predictor_bisim_next_pair(self, z_src, z_pred, perm):
+        z_obs_pred, _ = self.separate_emb(z_pred)
+        pred_next = z_obs_pred["visual"]
+        z_pred_pair = self.predict(z_src[perm])
+        pred_next2, _ = self.separate_emb(z_pred_pair)
+        return pred_next, pred_next2["visual"]
+
+    def _bisim_loss_kwargs(self, pred_next=None, pred_next2=None):
+        return {
+            "pred_next_z_bisim": pred_next,
+            "pred_next_z_bisim2": pred_next2,
+            "bisim_latent_metric": self.bisim_latent_metric,
+        }
 
     def train(self, mode=True):
         super().train(mode)
@@ -160,6 +198,8 @@ class VWorldModel(nn.Module):
             self.encoder.train(mode)
         if self.predictor is not None and self.train_predictor:
             self.predictor.train(mode)
+        if self.predictor_dinowm is not None and self.train_predictor:
+            self.predictor_dinowm.train(mode)
         if self.has_bisim and self.train_bisim:
             self.bisim_model.train(mode)
         self.proprio_encoder.train(mode)
@@ -172,6 +212,8 @@ class VWorldModel(nn.Module):
         self.encoder.eval()
         if self.predictor is not None:
             self.predictor.eval()
+        if self.predictor_dinowm is not None:
+            self.predictor_dinowm.eval()
         if self.has_bisim:
             self.bisim_model.eval()
         self.proprio_encoder.eval()
@@ -252,9 +294,9 @@ class VWorldModel(nn.Module):
             'rewards': self.bisim_memory_rewards[indices]
         }
 
-    def calc_bisim_loss(self, z_bisim, next_z_bisim, action_emb, epoch, reward=None, discount=0.99):
+    def calc_bisim_loss(self, z_bisim, next_z_bisim, action_emb, epoch, z_src=None, z_pred=None, reward=None, discount=0.99):
         """
-        Calculate bisimulation loss
+        Calculate bisimulation loss. When bisim_transition_target=predictor, Δ uses T_phi(w,a).
         """
         if not self.has_bisim:
             return torch.tensor(0.0, device=z_bisim.device)
@@ -298,6 +340,7 @@ class VWorldModel(nn.Module):
                 z_bisim2 = z_bisim_combined[perm]
                 next_z_bisim2 = next_z_bisim_combined[perm]
                 reward2 = reward_combined[perm]
+                extra = self._bisim_loss_kwargs()
 
                 if hasattr(self.bisim_model, "module"):
                     (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
@@ -309,6 +352,7 @@ class VWorldModel(nn.Module):
                         self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
                         self.vicreg_cov_coef, self.vicreg_std_min,
                         self.sigreg_sketch_dim,
+                        **extra,
                     )
                 else:
                     (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
@@ -320,6 +364,7 @@ class VWorldModel(nn.Module):
                         self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
                         self.vicreg_cov_coef, self.vicreg_std_min,
                         self.sigreg_sketch_dim,
+                        **extra,
                     )
 
                 bisim_loss = bisim_loss[:batch_size]
@@ -338,6 +383,10 @@ class VWorldModel(nn.Module):
                 z_bisim2 = z_bisim[perm]
                 next_z_bisim2 = next_z_bisim[perm]
                 reward2 = reward[perm]
+                extra = self._bisim_loss_kwargs()
+                if self._use_predictor_bisim_target(z_src, z_pred):
+                    pred_next, pred_next2 = self._predictor_bisim_next_pair(z_src, z_pred, perm)
+                    extra = self._bisim_loss_kwargs(pred_next, pred_next2)
 
                 if hasattr(self.bisim_model, "module"):
                     (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
@@ -348,6 +397,7 @@ class VWorldModel(nn.Module):
                         self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
                         self.vicreg_cov_coef, self.vicreg_std_min,
                         self.sigreg_sketch_dim,
+                        **extra,
                     )
                 else:
                     (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
@@ -358,6 +408,7 @@ class VWorldModel(nn.Module):
                         self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
                         self.vicreg_cov_coef, self.vicreg_std_min,
                         self.sigreg_sketch_dim,
+                        **extra,
                     )
         else:
             # memory buffer disabled or eval mode
@@ -365,6 +416,10 @@ class VWorldModel(nn.Module):
             z_bisim2 = z_bisim[perm]
             next_z_bisim2 = next_z_bisim[perm]
             reward2 = reward[perm]
+            extra = self._bisim_loss_kwargs()
+            if self._use_predictor_bisim_target(z_src, z_pred):
+                pred_next, pred_next2 = self._predictor_bisim_next_pair(z_src, z_pred, perm)
+                extra = self._bisim_loss_kwargs(pred_next, pred_next2)
 
             if hasattr(self.bisim_model, "module"):
                 (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
@@ -375,6 +430,7 @@ class VWorldModel(nn.Module):
                     self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
                     self.vicreg_cov_coef, self.vicreg_std_min,
                     self.sigreg_sketch_dim,
+                    **extra,
                 )
             else:
                 (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
@@ -385,6 +441,7 @@ class VWorldModel(nn.Module):
                     self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
                     self.vicreg_cov_coef, self.vicreg_std_min,
                     self.sigreg_sketch_dim,
+                    **extra,
                 )
 
         if self.training:
@@ -403,34 +460,66 @@ class VWorldModel(nn.Module):
             log_vicreg_total,
         )
 
+    def _build_z_from_dct(self, z_dct, act_emb):
+        if self.concat_dim == 0:
+            return torch.cat(
+                [z_dct["visual"], z_dct["proprio"].unsqueeze(2), act_emb.unsqueeze(2)],
+                dim=2,
+            )
+        proprio_tiled = repeat(
+            z_dct["proprio"].unsqueeze(2), "b t 1 a -> b t f a", f=z_dct["visual"].shape[2]
+        )
+        proprio_repeated = proprio_tiled.repeat(1, 1, 1, self.num_proprio_repeat)
+        act_tiled = repeat(act_emb.unsqueeze(2), "b t 1 a -> b t f a", f=z_dct["visual"].shape[2])
+        act_repeated = act_tiled.repeat(1, 1, 1, self.num_action_repeat)
+        return torch.cat([z_dct["visual"], proprio_repeated, act_repeated], dim=3)
+
+    def _apply_bisim_visual(self, z_dct, obs):
+        if not self.has_bisim:
+            return z_dct
+        out = {"visual": z_dct["visual"], "proprio": z_dct["proprio"]}
+        if self.bypass_dinov2:
+            raw_obs = {"visual": obs["visual"], "proprio": z_dct["proprio"]}
+            out["visual"] = self.encode_bisim(raw_obs)
+        else:
+            out["visual"] = self.encode_bisim(z_dct)
+        return out
+
+    def _compute_z_jepa_loss(self, z_pred, z_tgt):
+        if self.concat_dim == 0:
+            z_visual_loss = self.emb_criterion(
+                z_pred[:, :, :-2, :], z_tgt[:, :, :-2, :].detach()
+            )
+            z_proprio_loss = self.emb_criterion(
+                z_pred[:, :, -2, :], z_tgt[:, :, -2, :].detach()
+            )
+            z_loss = self.emb_criterion(
+                z_pred[:, :, :-1, :], z_tgt[:, :, :-1, :].detach()
+            )
+        elif self.concat_dim == 1:
+            z_visual_loss = self.emb_criterion(
+                z_pred[:, :, :, : -(self.proprio_dim + self.action_dim)],
+                z_tgt[:, :, :, : -(self.proprio_dim + self.action_dim)].detach(),
+            )
+            z_proprio_loss = self.emb_criterion(
+                z_pred[:, :, :, -(self.proprio_dim + self.action_dim) : -self.action_dim],
+                z_tgt[:, :, :, -(self.proprio_dim + self.action_dim) : -self.action_dim].detach(),
+            )
+            z_loss = self.emb_criterion(
+                z_pred[:, :, :, :-self.action_dim],
+                z_tgt[:, :, :, :-self.action_dim].detach(),
+            )
+        return z_loss, z_visual_loss, z_proprio_loss
+
     def encode(self, obs, act):
         """
         input :  obs (dict): "visual", "proprio", (b, num_frames, 3, img_size, img_size)
         output:    z (tensor): (b, num_frames, num_patches, emb_dim)
         """
         z_dct = self.encode_obs(obs)
-
-        if self.has_bisim:
-            if self.bypass_dinov2:
-                raw_obs = {"visual": obs["visual"], "proprio": z_dct["proprio"]}
-                z_dct["visual"] = self.encode_bisim(raw_obs)
-            else:
-                z_dct["visual"] = self.encode_bisim(z_dct)
-
         act_emb = self.encode_act(act)
-        if self.concat_dim == 0:
-            z = torch.cat(
-                [z_dct['visual'], z_dct['proprio'].unsqueeze(2), act_emb.unsqueeze(2)], dim=2  # add as an extra token
-            )  # (b, num_frames, num_patches + 2, dim)
-        if self.concat_dim == 1:
-            proprio_tiled = repeat(z_dct['proprio'].unsqueeze(2), "b t 1 a -> b t f a", f=z_dct['visual'].shape[2])
-            proprio_repeated = proprio_tiled.repeat(1, 1, 1, self.num_proprio_repeat)
-            act_tiled = repeat(act_emb.unsqueeze(2), "b t 1 a -> b t f a", f=z_dct['visual'].shape[2])
-            act_repeated = act_tiled.repeat(1, 1, 1, self.num_action_repeat)
-            z = torch.cat(
-                [z_dct['visual'], proprio_repeated, act_repeated], dim=3
-            )  # (b, num_frames, num_patches, dim + action_dim)
-        return z
+        z_dct = self._apply_bisim_visual(z_dct, obs)
+        return self._build_z_from_dct(z_dct, act_emb)
 
     def encode_act(self, act):
         act = self.action_encoder(act)  # (b, num_frames, action_emb_dim)
@@ -456,18 +545,20 @@ class VWorldModel(nn.Module):
         proprio_emb = self.encode_proprio(proprio)
         return {"visual": visual_embs, "proprio": proprio_emb}
 
-    def predict(self, z):  # in embedding space
+    def predict(self, z, predictor=None):  # in embedding space
         """
         input : z: (b, num_hist, num_patches, emb_dim)
         output: z: (b, num_hist, num_patches, emb_dim)
         """
+        predictor = self.predictor if predictor is None else predictor
         T = z.shape[1]
-        # reshape to a batch of windows of inputs
         z = rearrange(z, "b t p d -> b (t p) d")
-        # (b, num_hist * num_patches per img, emb_dim)
-        z = self.predictor(z)
+        z = predictor(z)
         z = rearrange(z, "b (t p) d -> b t p d", t=T)
         return z
+
+    def predict_dinowm(self, z):
+        return self.predict(z, predictor=self.predictor_dinowm)
 
     def decode(self, z):
         """
@@ -520,11 +611,27 @@ class VWorldModel(nn.Module):
         """
         loss = 0
         loss_components = {}
-        z = self.encode(obs, act)
-        z_src = z[:, : self.num_hist, :, :]  # (b, num_hist, num_patches, dim)
-        z_tgt = z[:, self.num_pred:, :, :]  # (b, num_hist, num_patches, dim)
-        visual_src = obs['visual'][:, : self.num_hist, ...]  # (b, num_hist, 3, img_size, img_size)
-        visual_tgt = obs['visual'][:, self.num_pred:, ...]  # (b, num_hist, 3, img_size, img_size)
+        z_dct = self.encode_obs(obs)
+        act_emb = self.encode_act(act)
+        z_dino = self._build_z_from_dct(z_dct, act_emb)
+        z_dct_bisim = self._apply_bisim_visual(z_dct, obs)
+        z = self._build_z_from_dct(z_dct_bisim, act_emb)
+        z_src = z[:, : self.num_hist, :, :]
+        z_tgt = z[:, self.num_pred:, :, :]
+        visual_src = obs['visual'][:, : self.num_hist, ...]
+        visual_tgt = obs['visual'][:, self.num_pred:, ...]
+
+        if self.train_dinowm_aux:
+            z_dino_src = z_dino[:, : self.num_hist, :, :]
+            z_dino_tgt = z_dino[:, self.num_pred:, :, :]
+            z_dino_pred = self.predict_dinowm(z_dino_src)
+            dinowm_z_loss, dinowm_z_visual_loss, dinowm_z_proprio_loss = self._compute_z_jepa_loss(
+                z_dino_pred, z_dino_tgt
+            )
+            loss = loss + self.dinowm_coef * dinowm_z_loss
+            loss_components["dinowm_z_loss"] = dinowm_z_loss
+            loss_components["dinowm_z_visual_loss"] = dinowm_z_visual_loss
+            loss_components["dinowm_z_proprio_loss"] = dinowm_z_proprio_loss
 
         if self.predictor is not None:
             z_pred = self.predict(z_src)
@@ -544,23 +651,7 @@ class VWorldModel(nn.Module):
                 visual_pred = None
 
             # compute loss for visual, proprio dims (i.e. exclude action dims)
-            if self.concat_dim == 0:
-                z_visual_loss = self.emb_criterion(z_pred[:, :, :-2, :], z_tgt[:, :, :-2, :].detach())
-                z_proprio_loss = self.emb_criterion(z_pred[:, :, -2, :], z_tgt[:, :, -2, :].detach())
-                z_loss = self.emb_criterion(z_pred[:, :, :-1, :], z_tgt[:, :, :-1, :].detach())
-            elif self.concat_dim == 1:
-                z_visual_loss = self.emb_criterion(
-                    z_pred[:, :, :, :-(self.proprio_dim + self.action_dim)], \
-                    z_tgt[:, :, :, :-(self.proprio_dim + self.action_dim)].detach()
-                )
-                z_proprio_loss = self.emb_criterion(
-                    z_pred[:, :, :, -(self.proprio_dim + self.action_dim): -self.action_dim],
-                    z_tgt[:, :, :, -(self.proprio_dim + self.action_dim): -self.action_dim].detach()
-                )
-                z_loss = self.emb_criterion(
-                    z_pred[:, :, :, :-self.action_dim],
-                    z_tgt[:, :, :, :-self.action_dim].detach()
-                )
+            z_loss, z_visual_loss, z_proprio_loss = self._compute_z_jepa_loss(z_pred, z_tgt)
 
             loss = loss + z_loss
             loss_components["z_loss"] = z_loss
@@ -578,7 +669,9 @@ class VWorldModel(nn.Module):
                     z_obs_src["visual"],
                     z_obs_tgt["visual"],
                     action_emb,
-                    epoch=epoch
+                    epoch=epoch,
+                    z_src=z_src,
+                    z_pred=z_pred,
                 )
                 bisim_loss = bisim_loss.mean()
                 loss = loss + self.bisim_coef * bisim_loss

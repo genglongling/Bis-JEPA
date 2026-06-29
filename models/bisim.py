@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import json
 import numpy as np
+from typing import Optional
 
 
 def weak_sigreg_loss(features: torch.Tensor, sketch_dim: int) -> torch.Tensor:
@@ -60,6 +61,85 @@ class ResBlock(nn.Module):
         return x + self.block(x)
 
 
+def build_patch_grid_coords(num_patches: int) -> torch.Tensor:
+    """Normalized (row, col) in [0, 1] for a square patch grid, shape (num_patches, 2)."""
+    side = int(round(num_patches ** 0.5))
+    if side * side != num_patches:
+        raise ValueError(f"num_patches={num_patches} is not a perfect square")
+    rows = torch.arange(side, dtype=torch.float32)
+    cols = torch.arange(side, dtype=torch.float32)
+    grid_r, grid_c = torch.meshgrid(rows, cols, indexing="ij")
+    coords = torch.stack([grid_r, grid_c], dim=-1).reshape(num_patches, 2)
+    denom = max(side - 1, 1)
+    return coords / denom
+
+
+def get_2d_sincos_pos_embed(embed_dim: int, grid_size: int) -> torch.Tensor:
+    """Sinusoidal 2D positional encoding, shape (grid_size*grid_size, embed_dim)."""
+    if embed_dim % 4 != 0:
+        raise ValueError(f"embed_dim must be divisible by 4 for 2D sin-cos, got {embed_dim}")
+    coords = build_patch_grid_coords(grid_size * grid_size) * grid_size
+    dim_each = embed_dim // 4
+    omega = torch.arange(dim_each, dtype=torch.float32) / dim_each
+    omega = 1.0 / (10000 ** omega)
+    out_r = coords[:, 0:1] * omega.unsqueeze(0)
+    out_c = coords[:, 1:2] * omega.unsqueeze(0)
+    emb = torch.cat([out_r.sin(), out_r.cos(), out_c.sin(), out_c.cos()], dim=1)
+    return emb
+
+
+class PatchSpatialPosEncoder(nn.Module):
+    """
+    Spatial positional encoding for bisim patch outputs (Figure 6).
+    Modes:
+      - learned: trainable (num_patches, patch_dim) table (legacy checkpoints)
+      - grid_mlp: MLP on normalized patch grid coordinates (row, col)
+      - sincos: fixed 2D sinusoidal grid encoding (ViT-style)
+    """
+
+    def __init__(
+        self,
+        num_patches: int,
+        patch_dim: int,
+        mode: str = "grid_mlp",
+        hidden_dim: Optional[int] = None,
+    ):
+        super().__init__()
+        self.num_patches = num_patches
+        self.patch_dim = patch_dim
+        self.mode = mode.lower()
+        hidden_dim = hidden_dim or patch_dim
+
+        coords = build_patch_grid_coords(num_patches)
+        self.register_buffer("patch_coords", coords, persistent=False)
+
+        if self.mode == "learned":
+            self.spatial_pos_emb = nn.Parameter(torch.randn(num_patches, patch_dim))
+            self.pos_mlp = None
+        elif self.mode == "grid_mlp":
+            self.spatial_pos_emb = None
+            self.pos_mlp = nn.Sequential(
+                nn.Linear(2, hidden_dim),
+                nn.GELU(),
+                nn.Linear(hidden_dim, patch_dim),
+            )
+        elif self.mode == "sincos":
+            side = int(round(num_patches ** 0.5))
+            sincos = get_2d_sincos_pos_embed(patch_dim, side)
+            self.register_buffer("sincos_pos", sincos, persistent=False)
+            self.spatial_pos_emb = None
+            self.pos_mlp = None
+        else:
+            raise ValueError(f"Unknown bisim_pos_encoding: {mode}")
+
+    def forward(self) -> torch.Tensor:
+        if self.mode == "learned":
+            return self.spatial_pos_emb
+        if self.mode == "grid_mlp":
+            return self.pos_mlp(self.patch_coords)
+        return self.sincos_pos
+
+
 class BisimModel(nn.Module):
     def __init__(
             self,
@@ -72,6 +152,8 @@ class BisimModel(nn.Module):
             img_size=224,
             num_patches=196,  # number of output patches
             patch_emb_dim=384,  # encoder patch embedding dimension (384 for DINOv2, 768 for SimDINOv2)
+            pos_encoding: str = "grid_mlp",
+            pos_hidden_dim: Optional[int] = None,
     ):
         super().__init__()
         self.input_dim = input_dim
@@ -83,37 +165,34 @@ class BisimModel(nn.Module):
         self.num_patches = num_patches
         self.patch_dim = latent_dim
         self.patch_emb_dim = patch_emb_dim
+        self.pos_encoding = pos_encoding
+        self.spatial_pos = PatchSpatialPosEncoder(
+            num_patches, self.patch_dim, mode=pos_encoding, hidden_dim=pos_hidden_dim
+        )
+        # Alias for loading legacy checkpoints that store spatial_pos_emb on BisimModel.
+        if pos_encoding == "learned":
+            self.spatial_pos_emb = self.spatial_pos.spatial_pos_emb
 
         if bypass_dinov2:
             patch_size = 16  # DINOv2 patch size
             patch_pixel_dim = 3 * patch_size * patch_size  # 768
 
-            middle_dim = 2 * self.patch_dim
             self.encoder = nn.Sequential(
-                nn.Linear(patch_pixel_dim, middle_dim),  # 768 -> middle_dim
-                ResBlock(middle_dim),
-                nn.Linear(middle_dim, self.patch_dim),  # middle_dim -> patch_dim
+                nn.Linear(patch_pixel_dim, self.hidden_dim),
+                ResBlock(self.hidden_dim),
+                nn.Linear(self.hidden_dim, self.patch_dim),
             )
 
-            # spatial positional embedding for output patches
-            self.spatial_pos_emb = nn.Parameter(torch.randn(num_patches, self.patch_dim))
-
-            # layer norm after projection
             self.proj_norm = nn.LayerNorm(self.patch_dim)
             self.patch_size = patch_size
         else:
-            # patch_emb_dim -> middle_dim -> ResBlock -> patch_dim
-            middle_dim = 2 * self.patch_dim
+            # patch_emb_dim -> hidden_dim -> ResBlock -> patch_dim (Figure 6 / Table 3)
             self.encoder = nn.Sequential(
-                nn.Linear(patch_emb_dim, middle_dim),
-                ResBlock(middle_dim),
-                nn.Linear(middle_dim, self.patch_dim),
+                nn.Linear(patch_emb_dim, self.hidden_dim),
+                ResBlock(self.hidden_dim),
+                nn.Linear(self.hidden_dim, self.patch_dim),
             )
 
-            # spatial positional embedding for output patches
-            self.spatial_pos_emb = nn.Parameter(torch.randn(num_patches, self.patch_dim))
-
-            # layer norm after projection
             self.proj_norm = nn.LayerNorm(self.patch_dim)
 
         reward_hidden_dim = (self.patch_dim + self.action_dim) * 2
@@ -125,6 +204,13 @@ class BisimModel(nn.Module):
         self._initialize_weights()
         self.PCAMatrix = []
         self.PCA_Calced = False
+
+    def load_state_dict(self, state_dict, strict=True):
+        """Map legacy top-level spatial_pos_emb keys into PatchSpatialPosEncoder."""
+        state_dict = dict(state_dict)
+        if "spatial_pos_emb" in state_dict and "spatial_pos.spatial_pos_emb" not in state_dict:
+            state_dict["spatial_pos.spatial_pos_emb"] = state_dict.pop("spatial_pos_emb")
+        return super().load_state_dict(state_dict, strict=strict)
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -181,6 +267,10 @@ class BisimModel(nn.Module):
         with open("bisim_log.json", "a") as f:
             f.write(json.dumps(log_entry) + "\n")
 
+    def _add_spatial_pos(self, z_bisim: torch.Tensor) -> torch.Tensor:
+        pos = self.spatial_pos().to(device=z_bisim.device, dtype=z_bisim.dtype)
+        return z_bisim + pos.view(1, 1, self.num_patches, self.patch_dim)
+
     def encode(self, input_data):
         """
         Maps input to bisimulation embeddings
@@ -202,7 +292,7 @@ class BisimModel(nn.Module):
             patches = patches.reshape(b, t, self.num_patches, c * patch_size * patch_size)
 
             z_bisim = self.encoder(patches)  # (b, t, num_patches, patch_dim)
-            z_bisim = z_bisim + self.spatial_pos_emb.unsqueeze(0).unsqueeze(0)  # broadcast over batch and time
+            z_bisim = self._add_spatial_pos(z_bisim)
             z_bisim = self.proj_norm(z_bisim)
             event = "bisim_encode_direct_patches"
 
@@ -210,10 +300,7 @@ class BisimModel(nn.Module):
             # apply per-token encoding: patch_emb_dim -> patch_dim
             z_bisim = self.encoder(input_data)  # (b, t, 196, patch_dim)
 
-            # add spatial positional embeddings
-            z_bisim = z_bisim + self.spatial_pos_emb.unsqueeze(0).unsqueeze(0)  # broadcast over batch and time
-
-            # apply layer norm
+            z_bisim = self._add_spatial_pos(z_bisim)
             z_bisim = self.proj_norm(z_bisim)
 
             event = "bisim_encode_dinov2_patches"
@@ -286,12 +373,12 @@ class BisimModel(nn.Module):
         else:
             raise ValueError(f"z_bisim must be (b,p,d) or (b,t,p,d), got {z_bisim.shape}")
 
-    def compute_transition_distance(self, next_z_bisim, next_z_bisim2):
+    def compute_transition_distance(self, next_z_bisim, next_z_bisim2, squared=True):
         """
-        Per-sequence transition distance.
+        Per-sequence transition distance between predicted or encoded next latents.
         next_z_bisim:  (b, t, p, d)
         next_z_bisim2: (b, t, p, d)
-        Returns: (b,) transition distance
+        Returns: (b,) — if squared=True, mean_t ||·||_2^2 (paper Δ_bisim); else RMS over time.
         """
         b, t, p, d = next_z_bisim.shape
         z1_pooled = next_z_bisim.mean(dim=2)   # (b, t, d)
@@ -299,10 +386,18 @@ class BisimModel(nn.Module):
 
         diff = z1_pooled - z2_pooled  # (b, t, d)
         squared_diff = diff.pow(2).sum(dim=-1)  # (b, t)
-        # average over time
-        distances = squared_diff.mean(dim=-1)  # (b,)
-        distances = torch.sqrt(distances + 1e-8)  # (b,)
-        return distances
+        if squared:
+            return squared_diff.mean(dim=-1)  # (b,)
+        distances = squared_diff.mean(dim=-1)
+        return torch.sqrt(distances + 1e-8)
+
+    def _latent_pair_distance(self, z_bisim, z_bisim2, metric="l2"):
+        """Pairwise distance between pooled bisim latents; returns (b, t)."""
+        z1_pooled = z_bisim.mean(dim=2)
+        z2_pooled = z_bisim2.mean(dim=2)
+        if metric == "smooth_l1":
+            return F.smooth_l1_loss(z1_pooled, z2_pooled, reduction="none").sum(dim=-1)
+        return (z1_pooled - z2_pooled).pow(2).sum(dim=-1)
 
     def compute_covariance_regularization(self, z_bisim, next_z_bisim,
                                           var_target: float = 1.0,
@@ -526,33 +621,32 @@ class BisimModel(nn.Module):
                         regularization: str = "pca",
                         vicreg_inv_coef: float = 25.0, vicreg_var_coef: float = 25.0,
                         vicreg_cov_coef: float = 1.0, vicreg_std_min: float = 1.0,
-                        sigreg_sketch_dim: int = 64):
+                        sigreg_sketch_dim: int = 64,
+                        pred_next_z_bisim=None, pred_next_z_bisim2=None,
+                        bisim_latent_metric: str = "l2"):
         """
-        Calculate bisimulation loss
-        bisimulation metric: d(s1,s2) = |r(s1) - r(s2)| + γ · d(P(s1), P(s2)) + Variance Loss + Covariance Regularization
-        If regularization == "vicreg", replaces the variance + per-patch covariance block with VICReg on pooled z, z2.
-        If regularization == "sigreg", uses Weak-SIGReg (covariance-to-identity) on pooled state pairs instead.
-        "pca" and "default" are aliases (hinge var / PCA var after PCAloss_epoch + per-patch cov).
-        input: z_bisim, z_bisim2: (b, t, num_patches, patch_dim)
-               reward, reward2: (b, t, 1)
-               next_z_bisim, next_z_bisim2: (b, t, num_patches, patch_dim)
-        output: bisim_loss: (b, t); then z_dist, r_dist, transition_dist, var_loss, cov_reg
-                (as used in the objective); then log_vicreg_{inv,var,cov,total} for monitoring —
-                for PCA, log_var/log_cov copy var_loss/cov_reg, inv/total are zeros; for VICReg,
-                log_* split the VIC block so CSV columns match PCA semantics.
-        """
-        # 1. compute distance per (b, t) — pool over patches, then distance in d-dim space
-        b, t, p, d = z_bisim.shape
-        z1_pooled = z_bisim.mean(dim=2)   # (b, t, d)
-        z2_pooled = z_bisim2.mean(dim=2)  # (b, t, d)
+        Calculate bisimulation loss.
 
-        z_dist = F.smooth_l1_loss(z1_pooled, z2_pooled, reduction="none").sum(dim=-1)
+        Paper (JEPA–bisim): L_bisim = E[(||w_t - w'_t||^2 - gamma ||T(w_t,a_t) - T(w'_t,a'_t)||^2)^2].
+        When pred_next_z_* are set, transition target uses dynamics T_phi; otherwise encoded next states.
+        Optional reward term when train_w_reward_loss; PCA/VICReg/SigReg extensions add var/cov terms.
+        """
+        b, t, p, d = z_bisim.shape
+
+        z_dist = self._latent_pair_distance(z_bisim, z_bisim2, metric=bisim_latent_metric)
 
         # 2. compute reward distance
         r_dist = torch.sum(F.smooth_l1_loss(reward, reward2, reduction="none"), dim=-1)
 
-        # 3. compute transition distance between next states
-        transition_dist = self.compute_transition_distance(next_z_bisim, next_z_bisim2)  # (b,)
+        # 3. transition target: T_phi(w,a) vs T_phi(w',a') or h(o_{t+1}) vs h(o'_{t+1})
+        if pred_next_z_bisim is not None and pred_next_z_bisim2 is not None:
+            transition_dist = self.compute_transition_distance(
+                pred_next_z_bisim, pred_next_z_bisim2, squared=True
+            )
+        else:
+            transition_dist = self.compute_transition_distance(
+                next_z_bisim, next_z_bisim2, squared=True
+            )
 
         if torch.isnan(transition_dist).any() or torch.isinf(transition_dist).any():
             print("WARNING: NaN or Inf values detected in transition_dist!")

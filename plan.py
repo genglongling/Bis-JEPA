@@ -468,7 +468,7 @@ def load_model(model_ckpt, train_cfg, num_action_repeat, device):
     if has_bisim:
         model_kwargs.update({
             "bisim_model": result.get("bisim_model"),
-            "bisim_latent_dim": train_cfg.get('bisim_latent_dim', 64),
+            "bisim_latent_dim": train_cfg.get('bisim_latent_dim', 32),
             "bisim_hidden_dim": train_cfg.get('bisim_hidden_dim', 256),
             "bisim_coef": train_cfg.get('bisim_coef', 1.0),
             "var_loss_coef": train_cfg.get('var_loss_coef', 1.0),

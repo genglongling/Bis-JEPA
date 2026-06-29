@@ -17,6 +17,8 @@ def append_loss_to_csv(epoch_log, csv_path="training_log.csv"):
         "train_bisim_cov_reg",
         "train_bisim_vicreg_inv",
         "train_bisim_vicreg_total",
+        "train_dinowm_z_loss",
+        "val_dinowm_z_loss",
         "val_z_proprio_loss",
         "val_standard_l2_loss",
         "val_bisim_loss",

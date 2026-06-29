@@ -121,11 +121,15 @@ def load_model_with_bisim_params(model_ckpt, train_cfg, num_action_repeat, devic
 
         result["bisim_model"] = BisimModel(
             input_dim=input_dim,
-            latent_dim=train_cfg.get('bisim_latent_dim', 64),
+            latent_dim=train_cfg.get('bisim_latent_dim', 32),
             hidden_dim=train_cfg.get('bisim_hidden_dim', 256),
             action_dim=train_cfg.action_emb_dim,
+            pos_encoding=train_cfg.get('bisim_pos_encoding', 'grid_mlp'),
+            pos_hidden_dim=train_cfg.get(
+                'bisim_pos_hidden_dim', train_cfg.get('bisim_hidden_dim', 256)
+            ),
         )
-        print(f"Created new bisimulation model with latent dim {train_cfg.get('bisim_latent_dim', 64)}")
+        print(f"Created new bisimulation model with latent dim {train_cfg.get('bisim_latent_dim', 32)}")
     elif not train_cfg.get('has_bisim', False):
         result["bisim_model"] = None
 
@@ -136,7 +140,7 @@ def load_model_with_bisim_params(model_ckpt, train_cfg, num_action_repeat, devic
         print(
             f"DEBUG: Using actual bisimulation parameters from checkpoint: latent_dim={actual_bisim_latent_dim}, hidden_dim={actual_bisim_hidden_dim}")
     else:
-        actual_bisim_latent_dim = train_cfg.get('bisim_latent_dim', 64)
+        actual_bisim_latent_dim = train_cfg.get('bisim_latent_dim', 32)
         actual_bisim_hidden_dim = train_cfg.get('bisim_hidden_dim', 256)
         print(
             f"DEBUG: Using config bisimulation parameters: latent_dim={actual_bisim_latent_dim}, hidden_dim={actual_bisim_hidden_dim}")

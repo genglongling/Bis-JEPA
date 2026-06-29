@@ -1,0 +1,26 @@
+[2026-04-28 14:55:31,726][__main__][INFO] - Model saved dir: /home/gloria/Bis-JEPA/outputs/2026-04-28/14-55-31
+[2026-04-28 14:55:31,752][__main__][INFO] - rank: 0  model_name: 2026-04-28/14-55-31_pusht_f5_h3_p1
+[2026-04-28 14:55:31,752][__main__][INFO] - device: cuda   model_name: 2026-04-28/14-55-31_pusht_f5_h3_p1
+[2026-04-28 14:55:38,396][__main__][INFO] - Loading dataset from /home/gloria/Bis-JEPA/datasets/data/pusht_noise ...
+[2026-04-28 14:55:38,671][__main__][INFO] - dataloader batch size: 40
+[2026-04-28 14:55:38,671][__main__][INFO] - Train encoder, predictor, decoder, bisim, train_w_std_loss, train_w_reward_loss:            False,            True,            True,            True,            True,            False
+[2026-04-28 14:55:38,684][dinov2][INFO] - using MLP layer as FFN
+[2026-04-28 14:55:39,026][__main__][INFO] - Initializing predictor with bisimulation latent dim: 64
+[2026-04-28 14:55:39,076][__main__][INFO] - Initialized bisimulation model with latent dim 64
+[2026-04-28 14:55:39,076][__main__][INFO] - Bypass encoder mode: False
+[2026-04-28 14:55:39,076][__main__][INFO] - Training obs -> dinov2_vits14 -> bisim
+[2026-04-28 15:05:05,257][__main__][INFO] - Epoch 1  Training loss: 0.5072  Validation loss: 0.5517
+[2026-04-28 15:05:05,257][__main__][INFO] - Train:  Bisim_loss: 0.1825                      z_loss: 0.3246  z_proprio_loss: 0.2411                     Bisim z_dist: 1.3595  Bisim r_dist: 0.0431                      Var reg (comparable to PCA var col): 0.0135  Transition_dist: 1.5842                     Cov reg (comparable to PCA cov col): 0.0000  VIC invar: 0.0000  VIC total block: 0.0135
+[2026-04-28 15:05:05,257][__main__][INFO] - Validation:  Bisim_loss: 0.2402                      z_loss: 0.3115  z_proprio_loss: 0.1531                     Bisim z_dist: 1.5500  Bisim r_dist: 0.0686                      Var reg: 0.0653  Transition_dist: 1.6886                     Cov reg: 0.0000  VIC invar: 0.0000  VIC total block: 0.0653
+[2026-04-28 15:05:05,392][__main__][INFO] - Saved model to /home/gloria/Bis-JEPA/outputs/2026-04-28/14-55-31
+[2026-04-28 15:14:29,143][__main__][INFO] - Epoch 2  Training loss: 0.4344  Validation loss: 0.5471
+[2026-04-28 15:14:29,143][__main__][INFO] - Train:  Bisim_loss: 0.1288                      z_loss: 0.3057  z_proprio_loss: 0.1167                     Bisim z_dist: 1.6156  Bisim r_dist: 0.0508                      Var reg (comparable to PCA var col): 0.0130  Transition_dist: 1.7501                     Cov reg (comparable to PCA cov col): 0.0000  VIC invar: 0.0000  VIC total block: 0.0130
+[2026-04-28 15:14:29,143][__main__][INFO] - Validation:  Bisim_loss: 0.2486                      z_loss: 0.2985  z_proprio_loss: 0.0955                     Bisim z_dist: 1.7218  Bisim r_dist: 0.0703                      Var reg: 0.0651  Transition_dist: 1.7940                     Cov reg: 0.0000  VIC invar: 0.0000  VIC total block: 0.0651
+[2026-04-28 15:14:29,302][__main__][INFO] - Saved model to /home/gloria/Bis-JEPA/outputs/2026-04-28/14-55-31
+[2026-04-28 15:23:58,133][__main__][INFO] - Epoch 3  Training loss: 0.3909  Validation loss: 0.4715
+[2026-04-28 15:23:58,134][__main__][INFO] - Train:  Bisim_loss: 0.1154                      z_loss: 0.2755  z_proprio_loss: 0.0804                     Bisim z_dist: 1.6587  Bisim r_dist: 0.0513                      Var reg (comparable to PCA var col): 0.0130  Transition_dist: 1.7750                     Cov reg (comparable to PCA cov col): 0.0000  VIC invar: 0.0000  VIC total block: 0.0130
+[2026-04-28 15:23:58,134][__main__][INFO] - Validation:  Bisim_loss: 0.2252                      z_loss: 0.2463  z_proprio_loss: 0.0667                     Bisim z_dist: 1.7306  Bisim r_dist: 0.0625                      Var reg: 0.0651  Transition_dist: 1.7963                     Cov reg: 0.0000  VIC invar: 0.0000  VIC total block: 0.0651
+[2026-04-28 15:23:58,295][__main__][INFO] - Saved model to /home/gloria/Bis-JEPA/outputs/2026-04-28/14-55-31
+[2026-04-28 15:33:22,034][__main__][INFO] - Epoch 4  Training loss: 0.3296  Validation loss: 0.4008
+[2026-04-28 15:33:22,034][__main__][INFO] - Train:  Bisim_loss: 0.1081                      z_loss: 0.2214  z_proprio_loss: 0.0623                     Bisim z_dist: 1.6703  Bisim r_dist: 0.0485                      Var reg (comparable to PCA var col): 0.0130  Transition_dist: 1.7823                     Cov reg (comparable to PCA cov col): 0.0000  VIC invar: 0.0000  VIC total block: 0.0130
+[2026-04-28 15:33:22,034][__main__][INFO] - Validation:  Bisim_loss: 0.2188                      z_loss: 0.1821  z_proprio_loss: 0.0502                     Bisim z_dist: 1.7119  Bisim r_dist: 0.0650                      Var reg: 0.0651  Transition_dist: 1.7816                     Cov reg: 0.0000  VIC invar: 0.0000  VIC total block: 0.0651

@@ -1,0 +1,14 @@
+# DINO-WM baseline (Zhou et al.): frozen DINOv2 + JEPA predictor in 384-d patch space, no bisim.
+defaults:
+  - train
+  - _self_
+
+wandb_display_name: dinowm
+
+has_bisim: False
+
+train_dinowm_aux: False
+
+model:
+  train_bisim: False
+  train_dinowm_predictor: False
