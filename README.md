@@ -18,11 +18,133 @@ JEPA-based world models, including [DINO-WM](https://arxiv.org/abs/2411.04983), 
 
 We address this by augmenting the latent dynamics with a **bisimulation encoder** that enforces control-relevant state equivalence. States with similar transition dynamics are mapped to nearby latent embeddings, while task-irrelevant visual features are discarded. The bisimulation encoder is trained jointly with the transition model, without relying on reward prediction.
 
-Our model operates in a latent space up to **10x smaller** than that of DINO-WM and is agnostic to the choice of pretrained visual encoder (DINOv2, SimDINOv2, iBOT).
+Our model operates in a latent space up to **10× smaller** than that of DINO-WM and is agnostic to the choice of pretrained visual encoder (DINOv2, SimDINOv2, iBOT).
 
 <p align="center">
   <img src="assets/motivating_pointmaze.png" width="600">
 </p>
+
+## Architecture
+
+### Latent space (JEPA vs DINO-Bisim)
+
+[DINO-WM](https://arxiv.org/abs/2411.04983) operates on patch-based DINOv2 features: **196 patches × 384** dimensions per frame (**196×384**). Our **patch-based bisimulation encoder** keeps the same **14×14** spatial layout but maps each patch into a **low-dimensional** latent (**196×32** with the hyperparameters in Figure 6). That is **>10×** fewer latent dimensions than DINO-WM’s JEPA space, while improving robustness to slow, task-irrelevant visual variation.
+
+### Patch-based bisimulation encoder
+
+Visual inputs are split into spatial patches; each patch is encoded with a **shared** MLP (plus a residual block), following the patch bisimulation design of Shimizu and Tomizuka [2025] and matching DINOv2’s patch output. **Figure 6** adds a separate **Positional Embedding Encoder** on the 14×14 patch grid: normalized coordinates `(row, col)` are mapped through an MLP to `(196, 32)` and **added** to the encoded features, then **LayerNorm** is applied. Instead of flattening **14×14×384** into a **75,264**-dimensional vector for one large first layer, we run **196 parallel** forward passes with input size **384**. With hidden width **256**, the first-layer parameter count drops from **(75,264×256)+256 ≈ 19.3M** to **(384×256)+256 ≈ 98.6K** (plus the positional MLP).
+
+### End-to-end DINO-Bisim model
+
+At each timestep the model takes **visual observations**, **proprioception**, and **actions**, and predicts the **next bisimulation latent** (optional reward head exists but is **not used** in our experiments). **DINOv2 ViT-S/14** (frozen) produces **196×384** patch tokens; the **bisimulation encoder** (Figure 6) maps them to **196×32** latent patches via MLP+ResBlock, coordinate-based positional encoding, and LayerNorm. Proprio and actions pass through lightweight **1D conv** embedders; embeddings are **concatenated** and processed by a **6-layer transformer** predictor. See the paper (Section 3, Table 3) for full hyperparameters.
+
+<p align="center">
+  <img src="assets/architecture.png" width="720" alt="Bisimulation encoder with patch-based design (196 patches, 32-dimensional output patches)">
+</p>
+<p align="center"><em>Figure 6: Bisimulation encoder with patch-based design (196 patches, 32 output patch dimensions).</em></p>
+
+### Paper ↔ code (default configs)
+
+Default training configs (`conf/train.yaml`, `conf/train_local.yaml`) match the paper tables below, Figure 6, and the bisim objective above.
+
+**Table 2: Shared hyperparameters for DINO-Bisim training**
+
+| Name | Value | Config key |
+|------|-------|------------|
+| Image size | 224 | `img_size` |
+| Optimizer | AdamW | predictor / action / proprio / bisim / decoder optimizers in `train.py` |
+| Decoder learning rate | 3×10⁻⁴ | `training.decoder_lr` |
+| Predictor learning rate | 1×10⁻⁵ | `training.predictor_lr` |
+| Action encoder learning rate | 1×10⁻⁴ | `training.action_encoder_lr` (proprio + action) |
+| Bisimulation learning rate | 5×10⁻⁷ | `training.bisim_lr` |
+| Action embedding dim. | 10 | `action_emb_dim` |
+| Proprio embedding dim. | 10 | `proprio_emb_dim` |
+| Epochs | 50 | `training.epochs` |
+| Batch size | 20 | `training.batch_size` |
+
+**Table 3: Bisimulation encoder hyperparameters**
+
+| Name | Value | Config key |
+|------|-------|------------|
+| Bisimulation memory buffer size | 1000 | `bisim_memory_buffer_size` |
+| Bisimulation state comparison size | 200 | `bisim_comparison_size` |
+| Action dim. | 10 | env / dataset (`action_emb_dim` at embed time) |
+| Num patches | 196 | `(img_size / 16)²` → 14×14 DINOv2 grid |
+| Latent dim. | 32 | `bisim_latent_dim` |
+| Patch dim. | 32 | same as `bisim_latent_dim` |
+| Patch embedding dim. | 384 | DINOv2 ViT-S/14 (`encoder.emb_dim`) |
+| MLP hidden width | 256 | `bisim_hidden_dim` |
+| Positional encoding | Grid MLP on `(row, col)` | `bisim_pos_encoding: grid_mlp` |
+| Positional MLP hidden width | 256 | `bisim_pos_hidden_dim` |
+
+| Component | Paper / Figure 6 | Code |
+|-----------|------------------|------|
+| Visual encoder | Frozen DINOv2 ViT-S/14, 196×384 patch tokens | `conf/encoder/dino.yaml`, `train_encoder: false` |
+| Bisim encoder | Shared MLP+ResBlock: 384→256→32 per patch | `BisimModel.encoder` in `models/bisim.py` |
+| Positional embedding encoder | 14×14 grid coords → MLP → 196×32; add to features | `PatchSpatialPosEncoder` (`bisim_pos_encoding: grid_mlp`) |
+| Post-encode norm | LayerNorm after addition | `BisimModel.proj_norm` |
+| Latent shape | 196×32 | `bisim_latent_dim: 32` |
+| Proprio / action | Lightweight 1D conv embedders | `models/proprio.py` (`Conv1d`) |
+| Dynamics model | 6-layer transformer predictor | `conf/predictor/vit.yaml` (`depth: 6`) |
+| Reward head | Present, not used in experiments | `train_w_reward_loss: false` |
+| Bisim loss | \((\|w-w'\|^2 - \gamma\|T(w,a)-T(w',a')\|^2)^2\) + PCA/var | `bisim_coef`, `bisim_transition_target: predictor` |
+| DINO-WM aux (Ours runs) | Second predictor on **196×384** DINO tokens + JEPA MSE | `train_dinowm_aux: true`, `predictor_dinowm`, `dinowm_coef` |
+
+**Notes**
+
+- **Figure 6 data flow:** DINO tokens → Bisim Encoder (MLP+ResBlock) → **+** Positional Embedding Encoder → LayerNorm → **196×32** output.
+- Each patch is encoded independently with **weight-tied** layers (196 parallel forwards, not a flattened 75,264-d input).
+- Default positional encoding is **`grid_mlp`**: normalized patch coordinates `(row, col) ∈ [0,1]²` → MLP (2→256→32). Set `bisim_pos_encoding: learned` when loading older checkpoints that store a `(196, 32)` lookup table; `sincos` is also available for ablations.
+- The predictor is trained with MSE on **visual bisim + proprio** latents; actions are inputs only.
+- Checkpoints under `outputs/` may use older hyperparameters (e.g. `bisim_latent_dim: 64`, `learned` positional embeddings); load them with the matching values from that run’s `hydra.yaml`.
+
+### Bisimulation loss (JEPA–bisim objective)
+
+We learn a pretrained encoder \(f_\theta\) (frozen DINOv2), bisimulation encoder \(h_\eta\), and dynamics \(T_\phi\) (transformer predictor) so distances in bisimulation space \(W\) approximate an on-policy bisimulation metric. For observations \(o_t, o_{t+1}\) and actions \(a_t\) from \(\mathcal{D}_\pi\):
+
+\[
+z_t = f_\theta(o_t), \quad w_t = h_\eta(z_t)
+\]
+
+**Dynamics (JEPA) loss** — empirical MSE in code (`z_loss`):
+
+\[
+\mathcal{L}_{\mathrm{dyn}}(\eta, \phi) \triangleq \mathbb{E}_{\mathcal{D}_\pi}\!\left[\left\|h_\eta(f_\theta(o_{t+1})) - T_\phi(h_\eta(f_\theta(o_t)), a_t)\right\|^2\right]
+\]
+
+**Bisimulation target** — pairs \((o_t, a_t, o_{t+1})\) and \((o'_t, a'_t, o'_{t+1})\) with **independent** actions (random pairing in the replay batch; Castro [2020]):
+
+\[
+\Delta_{\mathrm{bisim}}(\eta, \phi) \triangleq \gamma \left\|T_\phi(w_t, a_t) - T_\phi(w'_t, a'_t)\right\|_2^2
+\]
+
+**Invariance / bisim metric loss**:
+
+\[
+\mathcal{L}_{\mathrm{bisim}}(\eta, \phi) \triangleq \mathbb{E}_{\mathcal{D}_\pi}\!\left[\left(\|w_t - w'_t\|_2^2 - \Delta_{\mathrm{bisim}}(\eta, \phi)\right)^2\right]
+\]
+
+**Overall (paper Eq. 2), plus optional DINO-WM aux in code:**
+
+\[
+\mathcal{L}_{\mathrm{jepa\text{-}bisim}} = \mathcal{L}_{\mathrm{dyn}} + \lambda_{\mathrm{bisim}}\mathcal{L}_{\mathrm{bisim}}
+\]
+
+Implementation (`models/bisim.py`, `models/visual_world_model.py`):
+
+| Symbol | Code |
+|--------|------|
+| \(f_\theta\) | `encoder` (DINOv2), `train_encoder: false` |
+| \(h_\eta\) | `BisimModel.encode` |
+| \(T_\phi\) | `predictor` on bisim latents |
+| \(\mathcal{L}_{\mathrm{dyn}}\) | `z_loss` (MSE on bisim + proprio) |
+| \(\Delta_{\mathrm{bisim}}\) | `bisim_transition_target: predictor` (default): \(\gamma\) × squared distance between **predictor** outputs \(T_\phi(w,a)\) and \(T_\phi(w',a')\); legacy `encoder_next` uses \(h(o_{t+1})\) |
+| \(\|w_t - w'_t\|^2\) | patch-mean pool + `bisim_latent_metric: l2` |
+| \(\lambda_{\mathrm{bisim}}\) | `bisim_coef` |
+| Reward term | off (`train_w_reward_loss: false`) |
+| Extra regularization | PCA / VICReg / SigReg on latents (`regularization`) |
+
+When `train_dinowm_aux: true`, an additional \(\mathcal{L}_{\mathrm{JEPA}}^{\mathrm{DINO\text{-}WM}}\) on **384-d** DINO tokens (`predictor_dinowm`, `dinowm_coef`) is trained in parallel. Pairs use batch permutation; optional memory buffer (`bisim_memory_buffer_size`) adds cross-batch negatives (transition target falls back to encoded next states for memory pairs). Logged as `train_bisim_*` / `val_bisim_*` in `training_loss_log.csv`.
 
 ## Results
 
@@ -53,20 +175,24 @@ DINO-WM degrades under background changes (0.80 → 0.48 from NC to LCG). Domain
 
 ### PushT (`pusht_noise` dataset)
 
-Success rates are **not** comparable to PointMaze numbers above. Fill in after running planning eval (e.g. `python eval_pusht_six_conditions.py ...`); placeholders are em dashes until measured.
+Success rates are **not** comparable to PointMaze numbers above. Planning uses `plan_pusht_local` (`n_evals=50`, `goal_H=5`, `planner.max_iter=5`); six conditions via `eval_pusht_six_conditions.py`.
+
+**Partial results** (checkpoint `outputs/2026-06-26/23-30-32`, 32-d bisim, 50 epochs, `n_rollout=1000`, PCA; eval in progress):
 
 | Model | NC | SC | C | LC | LCG | D |
 |-------|------|------|------|------|------|------|
 | DINO-WM | — | — | — | — | — | — |
 | DINO-WM w/ DR | — | — | — | — | — | — |
-| **Ours (DINO-Bisim)** | **—** | **—** | **—** | **—** | **—** | **—** |
+| **Ours (DINO-Bisim)** | **~0.34** | **0.36** | **—** | **—** | **—** | **—** |
+
+NC pending re-run (interrupted); C–D in progress. Em dashes = not measured yet.
 
 **Encoder comparison (PushT):**
 
 | Model | NC | SC | C | LC | LCG | D |
 |-------|------|------|------|------|------|------|
 | No Encoder | — | — | — | — | — | — |
-| **DINOv2** | **—** | **—** | **—** | **—** | **—** | **—** |
+| **DINOv2** | **~0.34** | **0.36** | **—** | **—** | **—** | **—** |
 | SimDINOv2 | — | — | — | — | — | — |
 | iBOT | — | — | — | — | — | — |
 
@@ -185,20 +311,36 @@ End-to-end flow for a typical **local PushT** workflow (see `conf/train_local.ya
 
 ## Training
 
-Train a world model with the bisimulation encoder:
+### Ours (DINO-Bisim)
+
+Train with bisimulation encoder + **two** JEPA heads: bisim predictor (196×32, used at plan time) and auxiliary DINO-WM predictor (196×384). Defaults: `conf/train.yaml`, `conf/train_local.yaml` (`train_dinowm_aux: true`).
 
 ```bash
 python train.py --config-name train.yaml env=point_maze frameskip=5 num_hist=3
 ```
 
-Key bisimulation hyperparameters can be set via Hydra overrides:
+Key bisimulation hyperparameters:
 ```bash
 python train.py --config-name train.yaml env=point_maze frameskip=5 num_hist=3 \
-    bisim_latent_dim=32 \
-    training.bisim_lr=5e-7 var_loss_coef=1
+    bisim_latent_dim=32 bisim_hidden_dim=256 \
+    bisim_coef=1 regularization=pca training.bisim_lr=5e-7
 ```
 
-Hyperparameter sweeps:
+### DINO-WM baseline (DINO-WM only)
+
+For a **DINO-WM-only** run (single 384-d predictor, no bisim), use `conf/train_dinowm.yaml` / `conf/train_dinowm_local.yaml`. The default **Ours** configs already train the same DINO-WM objective via `predictor_dinowm` when `train_dinowm_aux: true`.
+
+```bash
+# Local PushT — use the same DATASET_DIR, seed, and epochs as Ours
+python train.py --config-name train_dinowm_local training.seed=0
+
+# Cluster / other envs
+python train.py --config-name train_dinowm env=point_maze frameskip=5 num_hist=3
+```
+
+Planning/eval uses the same `plan.py` / `eval_pusht_six_conditions.py`; the run’s `hydra.yaml` records `has_bisim: false`. See `docs/baseline_comparison.md` for matched comparisons. **DINO-WM w/ DR** needs domain-randomized training data and is not enabled by these configs alone.
+
+### Sweeps and checkpoints
 ```bash
 python train_sweep.py --config-file train_sweep_config.json --gpus 0 1 2 3
 ```
@@ -207,7 +349,7 @@ Model checkpoints are saved to `<ckpt_base_path>/outputs/`. Set `ckpt_base_path`
 
 ### Local training (PushT, `train_local`)
 
-For single-GPU, non-Slurm runs the repo includes `conf/train_local.yaml` (default env: `pusht`, Hydra `basic` launcher). **Defaults** match `train.yaml` on epochs (100), LRs, bisim, `num_hist`, **`regularization: pca`**, etc. Use **`regularization=vicreg`** locally for VicReg auxiliary. For a **short smoke test**, `python train.py --config-name train_local training.epochs=2`.
+For single-GPU, non-Slurm runs the repo includes `conf/train_local.yaml` (default env: `pusht`, Hydra `basic` launcher). **Defaults** match `train.yaml` and **Table 2** (50 epochs, batch 20, paper LRs). Use **`regularization=vicreg`** for VicReg auxiliary. For a **short smoke test**, `python train.py --config-name train_local training.epochs=2`.
 
 ```bash
 export DATASET_DIR=/path/to/datasets/data   # parent of `pusht_noise/`; see "Datasets" above
@@ -226,7 +368,7 @@ Bisim can use either the **PCA / hinge** schedule plus **per-patch covariance** 
 
 **Logging (apples-to-apples with PCA columns):** for VICReg, `train_bisim_var_loss` / `train_bisim_cov_reg` log the **VICReg variance-hinge** and **off-diagonal covariance** terms (weighted); `bisim_vicreg_inv` and `bisim_vicreg_total` report invariance and the full VIC block. For the PCA path, the variance and covariance columns are unchanged; the `vicreg_*` fields are zero. See `loss_history/loss_csv.py` and `models/bisim.py` for details.
 
-**Preliminary local metrics (PushT, `pusht_noise` full train/val, 2 epochs, comparable batch setup):** total loss in `training_loss_log.csv` (not planning success). **Historical snapshot** for PCA vs VICReg at 2 epochs. Default `train_local` uses **`regularization: pca`** and **`training.epochs: 100`**; use **`regularization=vicreg`** for VicReg runs. See `docs/baseline_comparison.md` for seed/data/budget matching vs DINO-WM.
+**Preliminary local metrics (PushT, `pusht_noise` full train/val, 2 epochs, comparable batch setup):** total loss in `training_loss_log.csv` (not planning success). **Historical snapshot** for PCA vs VICReg at 2 epochs. Default `train_local` uses **`regularization: pca`** and **`training.epochs: 50`** (Table 2); use **`regularization=vicreg`** for VicReg runs. See `docs/baseline_comparison.md` for seed/data/budget matching vs DINO-WM.
 
 | Regime | Epoch | train_loss | val_loss |
 |--------|--------|------------|----------|
