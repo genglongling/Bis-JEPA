@@ -175,24 +175,39 @@ DINO-WM degrades under background changes (0.80 → 0.48 from NC to LCG). Domain
 
 ### PushT (`pusht_noise` dataset)
 
-Success rates are **not** comparable to PointMaze numbers above. Planning uses `plan_pusht_local` (`n_evals=50`, `goal_H=5`, `planner.max_iter=5`); six conditions via `eval_pusht_six_conditions.py`.
+Success rates are **not** comparable to PointMaze numbers above. Planning uses `plan_pusht_local` (`n_evals=50`, `goal_H=5`, `planner.max_iter=5`); six conditions via `eval_pusht_six_conditions.py`. After rollout-sweep training, `scripts/post_train_sixcond_pipeline.sh` runs all six conditions and updates the table below via `scripts/update_readme_pusht_results.py`.
 
-**Partial results** (checkpoint `outputs/2026-06-26/23-30-32`, 32-d bisim, 50 epochs, `n_rollout=1000`, PCA; eval in progress):
+<!-- pusht-rollout-results -->
+
+### PushT rollout sweep (six planning conditions)
+
+Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. Success = mean over 50 eval rollouts per condition.
+
+| Train rollouts | Method | NC | SC | C | LC | LCG | D | Mean | Checkpoint |
+|----------------|--------|-----|-----|-----|-----|-----|-----|------|------------|
+| 1000 | DINO-Bisim | 0.36 | 0.36 | 0.36 | 0.32 | 0.32 | 0.30 | 0.34 | `2026-06-26/23-30-32` |
+| 1000 | DINO-WM | — | — | — | — | — | — | — | pending |
+| 5000 | DINO-Bisim | — | — | — | — | — | — | — | pending |
+| 5000 | DINO-WM | — | — | — | — | — | — | — | pending |
+| full | DINO-Bisim | — | — | — | — | — | — | — | `Checkpoints/` |
+| full | DINO-WM | — | — | — | — | — | — | — | pending |
+
+<!-- /pusht-rollout-results -->
+
+**Paper row (DINO-Bisim @ 1000 rollouts)** — same checkpoint as first row above; kept for reference with baselines:
 
 | Model | NC | SC | C | LC | LCG | D |
 |-------|------|------|------|------|------|------|
 | DINO-WM | — | — | — | — | — | — |
 | DINO-WM w/ DR | — | — | — | — | — | — |
-| **Ours (DINO-Bisim)** | **~0.34** | **0.36** | **—** | **—** | **—** | **—** |
-
-NC pending re-run (interrupted); C–D in progress. Em dashes = not measured yet.
+| **Ours (DINO-Bisim)** | **0.36** | **0.36** | **0.36** | **0.32** | **0.32** | **0.30** |
 
 **Encoder comparison (PushT):**
 
 | Model | NC | SC | C | LC | LCG | D |
 |-------|------|------|------|------|------|------|
 | No Encoder | — | — | — | — | — | — |
-| **DINOv2** | **~0.34** | **0.36** | **—** | **—** | **—** | **—** |
+| **DINOv2** | **0.36** | **0.36** | **0.36** | **0.32** | **0.32** | **0.30** |
 | SimDINOv2 | — | — | — | — | — | — |
 | iBOT | — | — | — | — | — | — |
 
