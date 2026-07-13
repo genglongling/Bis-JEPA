@@ -186,13 +186,54 @@ Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. Su
 | Train rollouts | Method | NC | SC | C | LC | LCG | D | Mean | Checkpoint |
 |----------------|--------|-----|-----|-----|-----|-----|-----|------|------------|
 | 1000 | DINO-Bisim | 0.36 | 0.36 | 0.36 | 0.32 | 0.32 | 0.30 | 0.34 | `2026-06-26/23-30-32` |
-| 1000 | DINO-WM | — | — | — | — | — | — | — | pending |
-| 5000 | DINO-Bisim | — | — | — | — | — | — | — | pending |
-| 5000 | DINO-WM | — | — | — | — | — | — | — | pending |
-| full | DINO-Bisim | — | — | — | — | — | — | — | `Checkpoints/` |
-| full | DINO-WM | — | — | — | — | — | — | — | pending |
+| 1000 | DINO-WM | 0.54 | 0.50 | 0.48 | 0.04 | 0.30 | 0.10 | 0.33 | `2026-07-01/16-35-19` |
+| 5000 | DINO-Bisim | — | — | — | — | — | — | — | `— (pending eval)` |
+| 5000 | DINO-WM | — | — | — | — | — | — | — | `— (pending eval)` |
+| full | DINO-Bisim | 0.50 | 0.54 | 0.46 | 0.82 | 0.48 | 0.30 | 0.52 | `checkpoints_captialone/push-T randomized/new_pushT90` |
+| full | DINO-WM | — | — | — | — | — | — | — | `— (pending eval)` |
 
 <!-- /pusht-rollout-results -->
+
+### Anderson server workflow (99 GB budget)
+
+Checkpoints live on the Mac under `anderson_archive/` (gitignored). On Anderson we train **one model at a time** on GPU 0, eval six conditions, archive to `to_sync/`, pull locally, then purge server disk.
+
+**Mac — pull checkpoints (run after each archived run, or auto via monitor):**
+```bash
+bash scripts/pull_anderson_checkpoints.sh
+```
+
+**Mac — monitor all sequential models (poll every 2 min, auto-pull on archive):**
+```bash
+nohup bash scripts/monitor_sequential_rollout.sh >> anderson_archive/monitor_sequential.log 2>&1 &
+tail -f anderson_archive/monitor_sequential.log
+cat anderson_archive/sequential_status.json
+```
+
+**Anderson — after local pull, free disk:**
+```bash
+bash scripts/purge_anderson_disk.sh
+```
+
+**Anderson — sequential train → eval → archive (waits up to 1 h for Mac pull between runs):**
+```bash
+nohup bash scripts/sequential_rollout_pipeline.sh >> logs/rollout_sweep/sequential.log 2>&1 &
+tail -f logs/rollout_sweep/sequential.log
+```
+
+Training uses `save_every_x_epoch=50` so only the final checkpoint is kept on disk during each run.
+
+**Resume a partial run** (checkpoint must exist under `outputs/<run>/checkpoints/model_latest.pth`):
+
+```bash
+# Mac: push archived partial run back to Anderson
+bash scripts/restore_anderson_run.sh 2026-07-01/16-35-19
+
+# train.py auto-loads model_latest.pth when hydra.run.dir points at the existing run
+# sequential_rollout_pipeline.sh sets this for known partial runs (dinowm_n1000 @36, bisim_n5000 @7, …)
+```
+
+Note: `training.epochs` is **additional** epochs after the loaded checkpoint, so the pipeline sets `epochs = 50 - last_epoch` when resuming.
 
 **Paper row (DINO-Bisim @ 1000 rollouts)** — same checkpoint as first row above; kept for reference with baselines:
 
