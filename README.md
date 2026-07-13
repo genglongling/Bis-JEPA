@@ -194,6 +194,21 @@ Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. Su
 
 <!-- /pusht-rollout-results -->
 
+**Visual conditions** (same PushT scene; backgrounds used at eval for DINO-Bisim full):
+
+![PushT six visual conditions](docs/figures/pusht_visual_conditions/bisim_full_six_conditions.png)
+
+| Condition | Background |
+|-----------|------------|
+| **NC** | White (no change) |
+| **SC** | Slight cool tint |
+| **C** | Stronger blue tint |
+| **LC** | Light orange |
+| **LCG** | Horizontal cyan→lavender gradient |
+| **D** | White + moving colored distractors |
+
+Regenerate: `python scripts/render_pusht_visual_conditions.py --montage`
+
 ### Anderson server workflow (99 GB budget)
 
 Checkpoints live on the Mac under `anderson_archive/` (gitignored). On Anderson we train **one model at a time** on GPU 0, eval six conditions, archive to `to_sync/`, pull locally, then purge server disk.
