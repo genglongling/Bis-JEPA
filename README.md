@@ -186,7 +186,9 @@ Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. Su
 | Train rollouts | Method | NC | SC | C | LC | LCG | D | Mean | Checkpoint |
 |----------------|--------|-----|-----|-----|-----|-----|-----|------|------------|
 | 1000 | DINO-Bisim | 0.36 | 0.36 | 0.36 | 0.32 | 0.32 | 0.30 | 0.34 | `2026-06-26/23-30-32` |
-| 1000 | DINO-WM | 0.54 | 0.50 | 0.48 | 0.04 | 0.30 | 0.10 | 0.33 | `2026-07-01/16-35-19` |
+| 1000 | DINO-WM(r1) | 0.54 | 0.50 | 0.48 | 0.04 | 0.30 | 0.10 | 0.33 | `2026-07-01/16-35-19` |
+| 1000 | DINO-WM(r2) | 0.46 | 0.46 | 0.46 | 0.20 | 0.28 | 0.10 | 0.33 | by_tag/dinowm_n1000 |
+| 5000 | DINO-Vicreg | — | — | — | — | — | — | — | `— (pending eval)` |
 | 5000 | DINO-Bisim | — | — | — | — | — | — | — | `— (pending eval)` |
 | 5000 | DINO-WM | — | — | — | — | — | — | — | `— (pending eval)` |
 | full | DINO-Bisim | 0.50 | 0.54 | 0.46 | 0.82 | 0.48 | 0.30 | 0.52 | `checkpoints_captialone/push-T randomized/new_pushT90` |
