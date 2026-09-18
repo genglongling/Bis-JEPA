@@ -61,6 +61,7 @@ Default training configs (`conf/train.yaml`, `conf/train_local.yaml`) match the 
 | Proprio embedding dim. | 10 | `proprio_emb_dim` |
 | Epochs | 50 | `training.epochs` |
 | Batch size | 20 | `training.batch_size` |
+| Steps per epoch (PushT fast training) | 1000 train / 200 val | `training.steps_per_epoch`, `training.val_steps_per_epoch` |
 
 **Table 3: Bisimulation encoder hyperparameters**
 
@@ -148,7 +149,7 @@ When `train_dinowm_aux: true`, an additional \(\mathcal{L}_{\mathrm{JEPA}}^{\mat
 
 ## Results
 
-We report planning **success rate** (mean over eval rollouts) under six test-time **sim** visual conditions: **NC** (no change, neutral background), **SC** (slight background change), **C** (tinted background), **LC** (large color shift), **LCG** (large color gradient), and **D** (distractors, including a moving highlight). The success **definition and scale** are task-specific: PointMaze uses goal proximity in \((x,y)\) (`point_maze_wrapper.eval_state`); PushT uses joint agent/block pose and angle in `env/pusht/pusht_wrapper.py` (`eval_state`). The planning loop aggregates SR the same way (mean of per-rollout `success` flags), but the two tasks are not directly comparable. Visual codes are the same in both settings; rendering is set at **environment** time (e.g. `wall_env.visual_condition` / `pusht_env.visual_condition` in the planning config). LaTeX sources for copy into the paper: `result_maze.tex`, `result_pushT.tex`.
+We report planning **success rate** (mean over eval rollouts) under **17** test-time **sim** visual conditions in **four categories**: (1) clean/lighting-color **NC, SC, C, LC, LCR, LCG, LCB**; (2) texture **T1–T5**; (3) viewpoint **V1–V4** (zoom in/out, rotation, crop); (4) dynamic nuisance **D1** (moving distractors). Legacy six-condition subset: NC, SC, C, LC, LCG, D1. The success **definition and scale** are task-specific: PointMaze uses goal proximity in \((x,y)\) (`point_maze_wrapper.eval_state`); PushT uses joint agent/block pose and angle in `env/pusht/pusht_wrapper.py` (`eval_state`). Visual codes are set at **environment** time (`pusht_env.visual_condition` in planning config). LaTeX: `result_maze.tex`, `result_pushT.tex`.
 
 <p align="center">
   <img src="assets/backgrounds_pm.png" width="600">
@@ -175,41 +176,109 @@ DINO-WM degrades under background changes (0.80 → 0.48 from NC to LCG). Domain
 
 ### PushT (`pusht_noise` dataset)
 
-Success rates are **not** comparable to PointMaze numbers above. Planning uses `plan_pusht_local` (`n_evals=50`, `goal_H=5`, `planner.max_iter=5`); six conditions via `eval_pusht_six_conditions.py`. After rollout-sweep training, `scripts/post_train_sixcond_pipeline.sh` runs all six conditions and updates the table below via `scripts/update_readme_pusht_results.py`.
+Success rates are **not** comparable to PointMaze numbers above. Planning uses `plan_pusht_local` (`n_evals=50`, `goal_H=5`, `planner.max_iter=5`); **17 conditions** via `eval_pusht_six_conditions.py` (4 category tables below). After rollout-sweep training, `scripts/eval_precomputed_baselines_gpu012.sh` runs eval and updates the README via `scripts/update_readme_pusht_results.py`.
 
 <!-- pusht-rollout-results -->
 
-### PushT rollout sweep (six planning conditions)
+### PushT rollout sweep (17 visual planning conditions, 4 categories)
 
-Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. Success = mean over 50 eval rollouts per condition.
+Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. **Mean** = average SR over conditions in that category.
+
+| Category | Conditions | Count |
+|----------|------------|-------|
+| Clean / lighting-color | NC, SC, C, LC, LCR, LCG, LCB | 7 |
+| Texture shift | T1–T5 (checker, h-stripes, v-stripes, noise, crosshatch) | 5 |
+| Viewpoint shift | V1 zoom-in, V2 zoom-out, V3 rotation, V4 crop | 4 |
+| Dynamic nuisance | D1 (moving distractors) | 1 |
+
+### Legacy six (NC, SC, C, LC, LCG, D1)
+
+Anderson retrain (live DINO, `steps_per_epoch=105340`, 50 epochs, `by_tag/*`). **DINO-WM** rows below are from the Sep 2026 eval (D1 still running — shown as —; **Mean** averages the five finished conditions). Bisim / VicReg pending.
 
 | Train rollouts | Method | NC | SC | C | LC | LCG | D | Mean | Checkpoint |
 |----------------|--------|-----|-----|-----|-----|-----|-----|------|------------|
 | 1000 | DINO-Bisim | 0.36 | 0.36 | 0.36 | 0.32 | 0.32 | 0.30 | 0.34 | `2026-06-26/23-30-32` |
 | 1000 | DINO-WM(r1) | 0.54 | 0.50 | 0.48 | 0.04 | 0.30 | 0.10 | 0.33 | `2026-07-01/16-35-19` |
 | 1000 | DINO-WM(r2) | 0.46 | 0.46 | 0.46 | 0.20 | 0.28 | 0.10 | 0.33 | by_tag/dinowm_n1000 |
-| 5000 | DINO-Vicreg | — | — | — | — | — | — | — | `— (pending eval)` |
-| 5000 | DINO-Bisim | — | — | — | — | — | — | — | `— (pending eval)` |
-| 5000 | DINO-WM | — | — | — | — | — | — | — | `— (pending eval)` |
+| 1000 | DINO-WM(r3) | 0.48 | 0.38 | 0.38 | 0.14 | 0.24 | — | 0.32 | `by_tag/dinowm_n1000` (epoch 50; D1 in progress) |
+| 5000 | DINO-Vicreg | — | — | — | — | — | — | — | `— (pending)` |
+| 5000 | DINO-Bisim | — | — | — | — | — | — | — | `by_tag/dinobisim_n5000` (epoch 5; pending) |
+| 5000 | DINO-WM | 0.74 | 0.68 | 0.64 | 0.42 | 0.56 | — | 0.61 | `by_tag/dinowm_n5000` (epoch 50; D1 in progress) |
 | full | DINO-Bisim | 0.50 | 0.54 | 0.46 | 0.82 | 0.48 | 0.30 | 0.52 | `checkpoints_captialone/push-T randomized/new_pushT90` |
-| full | DINO-WM | — | — | — | — | — | — | — | `— (pending eval)` |
+| full | DINO-WM | 0.78 | 0.66 | 0.68 | 0.50 | 0.58 | — | 0.64 | `by_tag/dinowm_nfull` (epoch 50; D1 in progress) |
+
+#### 1. Clean / lighting-color shift
+
+Legacy-six subset filled for DINO-WM (LCR/LCB not in current eval). Mean over NC/SC/C/LC/LCG.
+
+| Train rollouts | Method | NC | SC | C | LC | LCR | LCG | LCB | Mean | Checkpoint |
+|----------------|--------|-----|-----|-----|-----|-----|-----|-----|------|------------|
+| 1000 | DINO-Bisim | — | — | — | — | — | — | — | — | `by_tag/dinobisim_n1000 (pending)` |
+| 1000 | DINO-VICReg | — | — | — | — | — | — | — | — | `— (pending)` |
+| 1000 | DINO-WM | 0.48 | 0.38 | 0.38 | 0.14 | — | 0.24 | — | 0.32 | `by_tag/dinowm_n1000` |
+| 5000 | DINO-Bisim | — | — | — | — | — | — | — | — | `by_tag/dinobisim_n5000 (pending)` |
+| 5000 | DINO-VICReg | — | — | — | — | — | — | — | — | `— (pending)` |
+| 5000 | DINO-WM | 0.74 | 0.68 | 0.64 | 0.42 | — | 0.56 | — | 0.61 | `by_tag/dinowm_n5000` |
+| full | DINO-Bisim | — | — | — | — | — | — | — | — | `by_tag/dinobisim_nfull (pending)` |
+| full | DINO-VICReg | — | — | — | — | — | — | — | — | `— (pending)` |
+| full | DINO-WM | 0.78 | 0.66 | 0.68 | 0.50 | — | 0.58 | — | 0.64 | `by_tag/dinowm_nfull` |
+
+#### 2. Texture shift
+
+| Train rollouts | Method | T1 | T2 | T3 | T4 | T5 | Mean | Checkpoint |
+|----------------|--------|-----|-----|-----|-----|-----|------|------------|
+| 1000 | DINO-Bisim | — | — | — | — | — | — | `2026-08-08/00-58-46 (pending eval)` |
+| 1000 | DINO-VICReg | — | — | — | — | — | — | `2026-08-08/00-58-46 (pending eval)` |
+| 1000 | DINO-WM | — | — | — | — | — | — | `2026-08-08/00-58-46 (pending eval)` |
+| 5000 | DINO-Bisim | — | — | — | — | — | — | `2026-08-08/01-36-12 (pending eval)` |
+| 5000 | DINO-VICReg | — | — | — | — | — | — | `2026-08-08/01-36-19 (pending eval)` |
+| 5000 | DINO-WM | — | — | — | — | — | — | `2026-08-08/01-30-34 (pending eval)` |
+| full | DINO-Bisim | — | — | — | — | — | — | `— (pending eval)` |
+| full | DINO-VICReg | — | — | — | — | — | — | `— (pending eval)` |
+| full | DINO-WM | — | — | — | — | — | — | `— (pending eval)` |
+
+#### 3. Viewpoint shift
+
+| Train rollouts | Method | V1 | V2 | V3 | V4 | Mean | Checkpoint |
+|----------------|--------|-----|-----|-----|-----|------|------------|
+| 1000 | DINO-Bisim | — | — | — | — | — | `2026-08-08/00-58-46 (pending eval)` |
+| 1000 | DINO-VICReg | — | — | — | — | — | `2026-08-08/00-58-46 (pending eval)` |
+| 1000 | DINO-WM | — | — | — | — | — | `2026-08-08/00-58-46 (pending eval)` |
+| 5000 | DINO-Bisim | — | — | — | — | — | `2026-08-08/01-36-12 (pending eval)` |
+| 5000 | DINO-VICReg | — | — | — | — | — | `2026-08-08/01-36-19 (pending eval)` |
+| 5000 | DINO-WM | — | — | — | — | — | `2026-08-08/01-30-34 (pending eval)` |
+| full | DINO-Bisim | — | — | — | — | — | `— (pending eval)` |
+| full | DINO-VICReg | — | — | — | — | — | `— (pending eval)` |
+| full | DINO-WM | — | — | — | — | — | `— (pending eval)` |
+
+#### 4. Dynamic nuisance
+
+D1 eval in progress for DINO-WM (interim ≈0.02 / 0.14 / 0.10 for n1000 / n5000 / nfull — not final).
+
+| Train rollouts | Method | D1 | Mean | Checkpoint |
+|----------------|--------|-----|------|------------|
+| 1000 | DINO-Bisim | — | — | `by_tag/dinobisim_n1000 (pending)` |
+| 1000 | DINO-VICReg | — | — | `— (pending)` |
+| 1000 | DINO-WM | — | — | `by_tag/dinowm_n1000 (D1 in progress)` |
+| 5000 | DINO-Bisim | — | — | `by_tag/dinobisim_n5000 (pending)` |
+| 5000 | DINO-VICReg | — | — | `— (pending)` |
+| 5000 | DINO-WM | — | — | `by_tag/dinowm_n5000 (D1 in progress)` |
+| full | DINO-Bisim | — | — | `by_tag/dinobisim_nfull (pending)` |
+| full | DINO-VICReg | — | — | `— (pending)` |
+| full | DINO-WM | — | — | `by_tag/dinowm_nfull (D1 in progress)` |
 
 <!-- /pusht-rollout-results -->
 
-**Visual conditions** (same PushT scene; backgrounds used at eval for DINO-Bisim full):
+**Visual conditions** (PushT sim; four categories):
 
-![PushT six visual conditions](docs/figures/pusht_visual_conditions/bisim_full_six_conditions.png)
+| Category | Codes | Description |
+|----------|-------|-------------|
+| Clean / lighting-color | **NC**, **SC**, **C**, **LC**, **LCR**, **LCG**, **LCB** | Neutral → slight tint → color → large orange / red / gradient / blue shifts |
+| Texture | **T1**–**T5** | Checker, horizontal stripes, vertical stripes, noise, crosshatch |
+| Viewpoint | **V1**–**V4** | Zoom in, zoom out, 12° rotation, crop shift |
+| Dynamic | **D1** | White background + random circles + moving highlight |
 
-| Condition | Background |
-|-----------|------------|
-| **NC** | White (no change) |
-| **SC** | Slight cool tint |
-| **C** | Stronger blue tint |
-| **LC** | Light orange |
-| **LCG** | Horizontal cyan→lavender gradient |
-| **D** | White + moving colored distractors |
-
-Regenerate: `python scripts/render_pusht_visual_conditions.py --montage`
+Regenerate figures: `python scripts/render_pusht_visual_conditions.py --montage`
 
 ### Anderson server workflow (99 GB budget)
 
@@ -238,7 +307,15 @@ nohup bash scripts/sequential_rollout_pipeline.sh >> logs/rollout_sweep/sequenti
 tail -f logs/rollout_sweep/sequential.log
 ```
 
-Training uses `save_every_x_epoch=50` so only the final checkpoint is kept on disk during each run.
+Training uses `save_every_x_epoch=50` so only the final checkpoint is kept on disk during each run (override with `SAVE_EVERY=1` on Anderson for crash safety).
+
+**Fast training (default on Anderson sweep):** precomputed DINO + `steps_per_epoch=1000` — see [Training speed (PushT)](#training-speed-pusht). Restart:
+
+```bash
+cd ~/Bis-JEPA && git pull
+bash scripts/start_dino_sweep_gpu012.sh
+tail -f logs/rollout_sweep/baseline_gpu*_chain.log
+```
 
 **Resume a partial run** (checkpoint must exist under `outputs/<run>/checkpoints/model_latest.pth`):
 
@@ -381,6 +458,70 @@ End-to-end flow for a typical **local PushT** workflow (see `conf/train_local.ya
 6. **Sweeps** (optional): `python train_sweep.py ...` and `python evaluate_visual_grid.py --config ...` for multi–checkpoint tables.
 
 **Hydra tips:** any config value can be overridden on the command line, e.g. `training.epochs=2`, `regularization=pca` (paper-style bisim). Use `python train.py --config-name train_local --help` for the composed config (including nested keys).
+
+### Training speed (PushT)
+
+Two optional optimizations cut epoch time on large rollout sweeps (especially `n_rollout=full`, where exhaustive temporal windows can mean ~100k steps/epoch):
+
+1. **Precomputed DINO features** — cache DINOv2 patch embeddings **per unique frame** (per episode), not per temporal window. Offline script: `scripts/precompute_dino_features.py`. Training reads `{train,val}/dino_features/episode_XXX.pt` and skips live DINO forward (no DINO weights on GPU).
+
+2. **Fixed steps per epoch** — instead of enumerating every trajectory × window as one epoch, each epoch runs a fixed number of optimization steps with **random** trajectory + window sampling (`RandomTrajSamplerDataset`). Default for Anderson sweep: **1000** train / **200** val steps per epoch → **50 epochs ≈ 50k** total steps (set `training.steps_per_epoch=2000` for ~100k).
+
+**One-time precompute** (run once per dataset copy on Anderson T7):
+
+```bash
+export DATASET_DIR=/path/to/parent/of/pusht_noise
+python scripts/precompute_dino_features.py \
+  --data-path "$DATASET_DIR/pusht_noise" \
+  --batch-size 64 \
+  --skip-existing
+```
+
+**Enable both in training:**
+
+```bash
+python train.py --config-name train_local \
+  use_precomputed_dino=true \
+  training.steps_per_epoch=1000 \
+  training.val_steps_per_epoch=200
+```
+
+Set `training.steps_per_epoch=null` (default in yaml) to restore the legacy exhaustive epoch definition. Ground-truth mosaic logging is skipped automatically when visual input is precomputed embeddings (not RGB).
+
+If the DINO cache is not built yet, `start_dino_sweep_gpu012.sh` launches background precompute on GPU 2 and trains with `steps_per_epoch` only until `train/dino_features/manifest.json` exists; then restart with `USE_PRECOMPUTED_DINO=true` to enable the cache. On Anderson, features are stored on T7 at `$CKPT_BASE/dino_features/` (symlinked into `DATASET_DIR`) because the root filesystem is often full.
+
+**Anderson 3-GPU precomputed baselines** (after `train/manifest.json` exists on T7):
+
+```bash
+bash scripts/start_precomputed_baselines_gpu012.sh
+# GPU 0: dinowm n1000→n5000→nfull
+# GPU 1: dinovicreg n1000→n5000→nfull
+# GPU 2: dinobisim n1000→n5000→nfull
+# tails: logs/rollout_sweep/precomputed_gpu*_chain.log
+```
+
+If disk fills or jobs stall, free space and resume unfinished runs only:
+
+```bash
+bash scripts/free_anderson_disk.sh
+bash scripts/resume_precomputed_baselines_gpu012.sh
+```
+
+**Six-condition SR eval + README** (waits for all 9 trains to finish, then eval on GPUs 0–2):
+
+```bash
+nohup bash scripts/eval_precomputed_baselines_gpu012.sh >> logs/rollout_sweep/eval_precomputed.log 2>&1 &
+tail -f logs/rollout_sweep/eval_precomputed.log
+```
+
+On Mac after eval completes:
+
+```bash
+scp anderson-accelerator:~/Bis-JEPA/plan_outputs/rollout_sweep_results.json plan_outputs/
+python scripts/update_readme_pusht_results.py
+```
+
+This script precomputes DINO features if missing, then launches GPU 0: `dinobisim_n5000→dinowm_n5000`, GPU 1: `dinobisim_n1000→dinowm_n1000`, GPU 2: `dinobisim_nfull→dinovicreg_nfull`, with `TRAIN_NUM_WORKERS=8`, `SAVE_EVERY=1`, and fast-training Hydra overrides.
 
 ## Training
 
