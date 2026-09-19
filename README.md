@@ -2,7 +2,7 @@
 
 [[Paper]](https://arxiv.org/abs/2602.18639)
 
-Leonardo F. Toso\*, Davit Shadunts\*, Yunyang Lu\*, Nihal Sharma, Donglin Zhan, Nam H. Nguyen, James Anderson
+Leonardo F. Toso\*, Longling Geng\*, Davit Shadunts\*, Yunyang Lu\*, Nihal Sharma, Donglin Zhan, Nam H. Nguyen, James Anderson
 
 Columbia University, Capital One
 
@@ -193,7 +193,7 @@ Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. **
 
 ### Legacy six (NC, SC, C, LC, LCG, D1)
 
-Anderson retrain (live DINO, `steps_per_epoch=105340`, 50 epochs, `by_tag/*`). **DINO-WM** six-condition eval finished Sep 18–19 2026. **Bisim** training in progress (resume from epoch 5); VicReg pending.
+Anderson retrain (live DINO, `steps_per_epoch=105340`, 50 epochs, `by_tag/*`). **DINO-WM** six-condition eval finished Sep 18–19 2026; gap-fill for remaining table 1–4 conditions (LCR/LCB/T*/V*) queued with `EVAL_CATEGORY=all`. **Bisim** training in progress; subsequent Bisim/VicReg evals use all 17 conditions.
 
 | Train rollouts | Method | NC | SC | C | LC | LCG | D | Mean | Checkpoint |
 |----------------|--------|-----|-----|-----|-----|-----|-----|------|------------|
