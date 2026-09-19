@@ -193,19 +193,19 @@ Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. **
 
 ### Legacy six (NC, SC, C, LC, LCG, D1)
 
-Anderson retrain (live DINO, `steps_per_epoch=105340`, 50 epochs, `by_tag/*`). **DINO-WM** rows below are from the Sep 2026 eval (D1 still running — shown as —; **Mean** averages the five finished conditions). Bisim / VicReg pending.
+Anderson retrain (live DINO, `steps_per_epoch=105340`, 50 epochs, `by_tag/*`). **DINO-WM** six-condition eval finished Sep 18–19 2026. **Bisim** training in progress (resume from epoch 5); VicReg pending.
 
 | Train rollouts | Method | NC | SC | C | LC | LCG | D | Mean | Checkpoint |
 |----------------|--------|-----|-----|-----|-----|-----|-----|------|------------|
 | 1000 | DINO-Bisim | 0.36 | 0.36 | 0.36 | 0.32 | 0.32 | 0.30 | 0.34 | `2026-06-26/23-30-32` |
 | 1000 | DINO-WM(r1) | 0.54 | 0.50 | 0.48 | 0.04 | 0.30 | 0.10 | 0.33 | `2026-07-01/16-35-19` |
-| 1000 | DINO-WM(r2) | 0.46 | 0.46 | 0.46 | 0.20 | 0.28 | 0.10 | 0.33 | by_tag/dinowm_n1000 |
-| 1000 | DINO-WM(r3) | 0.48 | 0.38 | 0.38 | 0.14 | 0.24 | — | 0.32 | `by_tag/dinowm_n1000` (epoch 50; D1 in progress) |
+| 1000 | DINO-WM(r2) | 0.46 | 0.46 | 0.46 | 0.20 | 0.28 | 0.10 | 0.33 | `by_tag/dinowm_n1000` (older eval) |
+| 1000 | DINO-WM | 0.48 | 0.38 | 0.38 | 0.14 | 0.24 | 0.12 | 0.29 | `by_tag/dinowm_n1000` (epoch 50) |
 | 5000 | DINO-Vicreg | — | — | — | — | — | — | — | `— (pending)` |
-| 5000 | DINO-Bisim | — | — | — | — | — | — | — | `by_tag/dinobisim_n5000` (epoch 5; pending) |
-| 5000 | DINO-WM | 0.74 | 0.68 | 0.64 | 0.42 | 0.56 | — | 0.61 | `by_tag/dinowm_n5000` (epoch 50; D1 in progress) |
+| 5000 | DINO-Bisim | — | — | — | — | — | — | — | `by_tag/dinobisim_n5000` (training) |
+| 5000 | DINO-WM | 0.74 | 0.68 | 0.64 | 0.42 | 0.56 | 0.22 | 0.54 | `by_tag/dinowm_n5000` (epoch 50) |
 | full | DINO-Bisim | 0.50 | 0.54 | 0.46 | 0.82 | 0.48 | 0.30 | 0.52 | `checkpoints_captialone/push-T randomized/new_pushT90` |
-| full | DINO-WM | 0.78 | 0.66 | 0.68 | 0.50 | 0.58 | — | 0.64 | `by_tag/dinowm_nfull` (epoch 50; D1 in progress) |
+| full | DINO-WM | 0.78 | 0.66 | 0.68 | 0.50 | 0.58 | 0.20 | 0.57 | `by_tag/dinowm_nfull` (epoch 50) |
 
 #### 1. Clean / lighting-color shift
 
@@ -213,13 +213,13 @@ Legacy-six subset filled for DINO-WM (LCR/LCB not in current eval). Mean over NC
 
 | Train rollouts | Method | NC | SC | C | LC | LCR | LCG | LCB | Mean | Checkpoint |
 |----------------|--------|-----|-----|-----|-----|-----|-----|-----|------|------------|
-| 1000 | DINO-Bisim | — | — | — | — | — | — | — | — | `by_tag/dinobisim_n1000 (pending)` |
+| 1000 | DINO-Bisim | — | — | — | — | — | — | — | — | `by_tag/dinobisim_n1000 (training)` |
 | 1000 | DINO-VICReg | — | — | — | — | — | — | — | — | `— (pending)` |
 | 1000 | DINO-WM | 0.48 | 0.38 | 0.38 | 0.14 | — | 0.24 | — | 0.32 | `by_tag/dinowm_n1000` |
-| 5000 | DINO-Bisim | — | — | — | — | — | — | — | — | `by_tag/dinobisim_n5000 (pending)` |
+| 5000 | DINO-Bisim | — | — | — | — | — | — | — | — | `by_tag/dinobisim_n5000 (training)` |
 | 5000 | DINO-VICReg | — | — | — | — | — | — | — | — | `— (pending)` |
 | 5000 | DINO-WM | 0.74 | 0.68 | 0.64 | 0.42 | — | 0.56 | — | 0.61 | `by_tag/dinowm_n5000` |
-| full | DINO-Bisim | — | — | — | — | — | — | — | — | `by_tag/dinobisim_nfull (pending)` |
+| full | DINO-Bisim | — | — | — | — | — | — | — | — | `by_tag/dinobisim_nfull (training)` |
 | full | DINO-VICReg | — | — | — | — | — | — | — | — | `— (pending)` |
 | full | DINO-WM | 0.78 | 0.66 | 0.68 | 0.50 | — | 0.58 | — | 0.64 | `by_tag/dinowm_nfull` |
 
@@ -253,19 +253,17 @@ Legacy-six subset filled for DINO-WM (LCR/LCB not in current eval). Mean over NC
 
 #### 4. Dynamic nuisance
 
-D1 eval in progress for DINO-WM (interim ≈0.02 / 0.14 / 0.10 for n1000 / n5000 / nfull — not final).
-
 | Train rollouts | Method | D1 | Mean | Checkpoint |
 |----------------|--------|-----|------|------------|
-| 1000 | DINO-Bisim | — | — | `by_tag/dinobisim_n1000 (pending)` |
+| 1000 | DINO-Bisim | — | — | `by_tag/dinobisim_n1000 (training)` |
 | 1000 | DINO-VICReg | — | — | `— (pending)` |
-| 1000 | DINO-WM | — | — | `by_tag/dinowm_n1000 (D1 in progress)` |
-| 5000 | DINO-Bisim | — | — | `by_tag/dinobisim_n5000 (pending)` |
+| 1000 | DINO-WM | 0.12 | 0.12 | `by_tag/dinowm_n1000` |
+| 5000 | DINO-Bisim | — | — | `by_tag/dinobisim_n5000 (training)` |
 | 5000 | DINO-VICReg | — | — | `— (pending)` |
-| 5000 | DINO-WM | — | — | `by_tag/dinowm_n5000 (D1 in progress)` |
-| full | DINO-Bisim | — | — | `by_tag/dinobisim_nfull (pending)` |
+| 5000 | DINO-WM | 0.22 | 0.22 | `by_tag/dinowm_n5000` |
+| full | DINO-Bisim | — | — | `by_tag/dinobisim_nfull (training)` |
 | full | DINO-VICReg | — | — | `— (pending)` |
-| full | DINO-WM | — | — | `by_tag/dinowm_nfull (D1 in progress)` |
+| full | DINO-WM | 0.20 | 0.20 | `by_tag/dinowm_nfull` |
 
 <!-- /pusht-rollout-results -->
 
