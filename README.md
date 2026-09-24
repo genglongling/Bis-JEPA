@@ -191,21 +191,21 @@ Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. **
 | Viewpoint shift | V1 zoom-in, V2 zoom-out, V3 rotation, V4 crop | 4 |
 | Dynamic nuisance | D1 (moving distractors) | 1 |
 
-### Legacy six (NC, SC, C, LC, LCG, D1)
+### Legacy six + mild (summary)
 
-Anderson live-DINO retrain (`by_tag/*`, 50 epochs, `steps_per_epoch=105340`). WM six-condition eval finished; Bisim n5000/nfull 6+4 eval in progress; Bisim n1000 training; mild T1/T2/V1/V2 queued after.
+Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. † = mean over completed conditions only. T2/V1/V2, WM mild, and Bisim n1000 still pending.
 
-| Train rollouts | Method | NC | SC | C | LC | LCG | D1 | Mean | Checkpoint |
-|----------------|--------|-----|-----|-----|-----|-----|-----|------|------------|
-| 1000 | DINO-WM | 0.48 | 0.38 | 0.38 | 0.14 | 0.24 | 0.12 | 0.29 | `by_tag/dinowm_n1000` (epoch 50) |
-| 1000 | DINO-Bisim | — | — | — | — | — | — | — | `by_tag/dinobisim_n1000` (training) |
-| 1000 | DINO-Vicreg | — | — | — | — | — | — | — | `— (pending)` |
-| 5000 | DINO-WM | 0.74 | 0.68 | 0.64 | 0.42 | 0.56 | 0.22 | 0.54 | `by_tag/dinowm_n5000` (epoch 50) |
-| 5000 | DINO-Bisim | 0.44 | 0.50 | 0.40 | 0.46 | 0.38 | 0.10 | 0.38† | `by_tag/dinobisim_n5000` (eval 7/10) |
-| 5000 | DINO-Vicreg | — | — | — | — | — | — | — | `— (pending)` |
-| full | DINO-WM | 0.78 | 0.66 | 0.68 | 0.50 | 0.58 | 0.20 | 0.57 | `by_tag/dinowm_nfull` (epoch 50) |
-| full | DINO-Bisim | 0.44 | 0.44 | 0.36 | 0.38 | 0.42 | 0.26 | 0.38† | `by_tag/dinobisim_nfull` (eval 6/10) |
-| full | DINO-Vicreg | — | — | — | — | — | — | — | `— (pending)` |
+| n | Method | Source | NC | SC | C | LC | LCG | D1 | T1 | Mean† |
+|---|--------|--------|----|----|---|----|-----|----|----|-------|
+| 1000 | Bisim | prev | 0.36 | 0.36 | 0.36 | 0.32 | 0.32 | 0.30 | — | 0.34 |
+| 1000 | WM | Anderson | 0.48 | 0.38 | 0.38 | 0.14 | 0.24 | 0.12 | — | 0.29 |
+| 5000 | WM | Anderson | 0.74 | 0.68 | 0.64 | 0.42 | 0.56 | 0.22 | — | 0.54 |
+| 5000 | Bisim | Anderson 7/10 | 0.44 | 0.50 | 0.40 | 0.46 | 0.38 | 0.10 | 0.40 | 0.38† |
+| full | Bisim | prev capitalone | 0.50 | 0.54 | 0.46 | 0.82 | 0.48 | 0.30 | — | 0.52 |
+| full | WM | Anderson | 0.78 | 0.66 | 0.68 | 0.50 | 0.58 | 0.20 | — | 0.57 |
+| full | Bisim | Anderson 6/10 | 0.44 | 0.44 | 0.36 | 0.38 | 0.42 | 0.26 | ~0.32 | 0.38† |
+
+Checkpoints: prev Bisim@1000 `2026-06-26/23-30-32`; Anderson WM/Bisim `by_tag/dino{wm,bisim}_n*`; prev Bisim@full `checkpoints_captialone/.../new_pushT90`.
 
 #### 1. Clean / lighting-color shift
 
@@ -213,14 +213,16 @@ LCR/LCB not in current Anderson eval. Mean over filled lighting cols.
 
 | Train rollouts | Method | NC | SC | C | LC | LCR | LCG | LCB | Mean | Checkpoint |
 |----------------|--------|-----|-----|-----|-----|-----|-----|-----|------|------------|
+| 1000 | DINO-Bisim (prev) | 0.36 | 0.36 | 0.36 | 0.32 | — | 0.32 | — | 0.34 | `2026-06-26/23-30-32` |
 | 1000 | DINO-WM | 0.48 | 0.38 | 0.38 | 0.14 | — | 0.24 | — | 0.32 | `by_tag/dinowm_n1000` |
 | 1000 | DINO-Bisim | — | — | — | — | — | — | — | — | `by_tag/dinobisim_n1000` (training) |
 | 1000 | DINO-VICReg | — | — | — | — | — | — | — | — | `— (pending)` |
 | 5000 | DINO-WM | 0.74 | 0.68 | 0.64 | 0.42 | — | 0.56 | — | 0.61 | `by_tag/dinowm_n5000` |
-| 5000 | DINO-Bisim | 0.44 | 0.50 | 0.40 | 0.46 | — | 0.38 | — | 0.44† | `by_tag/dinobisim_n5000` (partial) |
+| 5000 | DINO-Bisim | 0.44 | 0.50 | 0.40 | 0.46 | — | 0.38 | — | 0.44† | `by_tag/dinobisim_n5000` (7/10) |
 | 5000 | DINO-VICReg | — | — | — | — | — | — | — | — | `— (pending)` |
+| full | DINO-Bisim (prev) | 0.50 | 0.54 | 0.46 | 0.82 | — | 0.48 | — | 0.56 | `checkpoints_captialone/.../new_pushT90` |
 | full | DINO-WM | 0.78 | 0.66 | 0.68 | 0.50 | — | 0.58 | — | 0.64 | `by_tag/dinowm_nfull` |
-| full | DINO-Bisim | 0.44 | 0.44 | 0.36 | 0.38 | — | 0.42 | — | 0.41† | `by_tag/dinobisim_nfull` (partial) |
+| full | DINO-Bisim | 0.44 | 0.44 | 0.36 | 0.38 | — | 0.42 | — | 0.41† | `by_tag/dinobisim_nfull` (6/10) |
 | full | DINO-VICReg | — | — | — | — | — | — | — | — | `— (pending)` |
 
 #### 2. Texture shift
@@ -234,7 +236,7 @@ LCR/LCB not in current Anderson eval. Mean over filled lighting cols.
 | 5000 | DINO-Bisim | 0.40 | — | — | — | — | — | `by_tag/dinobisim_n5000` (T2 running) |
 | 5000 | DINO-VICReg | — | — | — | — | — | — | `— (pending)` |
 | full | DINO-WM | — | — | — | — | — | — | `by_tag/dinowm_nfull` (queued) |
-| full | DINO-Bisim | — | — | — | — | — | — | `by_tag/dinobisim_nfull` (T1 running) |
+| full | DINO-Bisim | ~0.32 | — | — | — | — | — | `by_tag/dinobisim_nfull` (T1 running) |
 | full | DINO-VICReg | — | — | — | — | — | — | `— (pending)` |
 
 #### 3. Viewpoint shift
@@ -255,12 +257,14 @@ LCR/LCB not in current Anderson eval. Mean over filled lighting cols.
 
 | Train rollouts | Method | D1 | Mean | Checkpoint |
 |----------------|--------|-----|------|------------|
+| 1000 | DINO-Bisim (prev) | 0.30 | 0.30 | `2026-06-26/23-30-32` |
 | 1000 | DINO-WM | 0.12 | 0.12 | `by_tag/dinowm_n1000` |
 | 1000 | DINO-Bisim | — | — | `by_tag/dinobisim_n1000` (training) |
 | 1000 | DINO-VICReg | — | — | `— (pending)` |
 | 5000 | DINO-WM | 0.22 | 0.22 | `by_tag/dinowm_n5000` |
 | 5000 | DINO-Bisim | 0.10 | 0.10 | `by_tag/dinobisim_n5000` (partial) |
 | 5000 | DINO-VICReg | — | — | `— (pending)` |
+| full | DINO-Bisim (prev) | 0.30 | 0.30 | `checkpoints_captialone/.../new_pushT90` |
 | full | DINO-WM | 0.20 | 0.20 | `by_tag/dinowm_nfull` |
 | full | DINO-Bisim | 0.26 | 0.26 | `by_tag/dinobisim_nfull` (partial) |
 | full | DINO-VICReg | — | — | `— (pending)` |
