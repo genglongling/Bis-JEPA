@@ -200,12 +200,12 @@ Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. �
 | 1000 | Bisim | prev | 0.36 | 0.36 | 0.36 | 0.32 | 0.32 | 0.30 | — | 0.34 |
 | 1000 | WM | Anderson | 0.48 | 0.38 | 0.38 | 0.14 | 0.24 | 0.12 | — | 0.29 |
 | 5000 | WM | Anderson | 0.74 | 0.68 | 0.64 | 0.42 | 0.56 | 0.22 | — | 0.54 |
-| 5000 | Bisim | Anderson 7/10 | 0.44 | 0.50 | 0.40 | 0.46 | 0.38 | 0.10 | 0.40 | 0.38† |
+| 5000 | Bisim | cloud 7/10 | 0.44 | 0.50 | 0.40 | 0.46 | 0.38 | 0.10 | 0.40 | 0.38† |
 | full | Bisim | prev capitalone | 0.50 | 0.54 | 0.46 | 0.82 | 0.48 | 0.30 | — | 0.52 |
 | full | WM | Anderson | 0.78 | 0.66 | 0.68 | 0.50 | 0.58 | 0.20 | — | 0.57 |
-| full | Bisim | Anderson 6/10 | 0.44 | 0.44 | 0.36 | 0.38 | 0.42 | 0.26 | ~0.32 | 0.38† |
+| full | Bisim | cloud 6/10 | 0.44 | 0.44 | 0.36 | 0.38 | 0.42 | 0.26 | ~0.32 | 0.38† |
 
-Checkpoints: prev Bisim@1000 `2026-06-26/23-30-32`; Anderson WM/Bisim `by_tag/dino{wm,bisim}_n*`; prev Bisim@full `checkpoints_captialone/.../new_pushT90`.
+Checkpoints: prev Bisim@1000 `2026-06-26/23-30-32`; Anderson WM `by_tag/dinowm_n*`; cloud Bisim n5000/nfull eval in progress; prev Bisim@full `checkpoints_captialone/.../new_pushT90`.
 
 #### 1. Clean / lighting-color shift
 
