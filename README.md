@@ -193,10 +193,16 @@ Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. **
 
 ### Legacy six + mild (summary)
 
-Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. † = mean over completed conditions only. T2/V1/V2, WM mild, and Bisim n1000 still pending.
+Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. † = mean over completed conditions only. Small-n (25/50/100) Anderson: GPU0=n25, GPU1=n50, GPU2=n100 (WM→Bisim each). T2/V1/V2, WM mild, and Bisim n1000 still pending.
 
 | n | Method | Source | NC | SC | C | LC | LCG | D1 | T1 | Mean† |
 |---|--------|--------|----|----|---|----|-----|----|----|-------|
+| 25 | WM | Anderson | — | — | — | — | — | — | — | — |
+| 25 | Bisim | Anderson | — | — | — | — | — | — | — | — |
+| 50 | WM | Anderson | — | — | — | — | — | — | — | — |
+| 50 | Bisim | Anderson | — | — | — | — | — | — | — | — |
+| 100 | WM | Anderson | — | — | — | — | — | — | — | — |
+| 100 | Bisim | Anderson | — | — | — | — | — | — | — | — |
 | 1000 | Bisim | prev | 0.36 | 0.36 | 0.36 | 0.32 | 0.32 | 0.30 | — | 0.34 |
 | 1000 | WM | Anderson | 0.48 | 0.38 | 0.38 | 0.14 | 0.24 | 0.12 | — | 0.29 |
 | 5000 | WM | Anderson | 0.74 | 0.68 | 0.64 | 0.42 | 0.56 | 0.22 | — | 0.54 |
@@ -205,7 +211,7 @@ Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. �
 | full | WM | Anderson | 0.78 | 0.66 | 0.68 | 0.50 | 0.58 | 0.20 | — | 0.57 |
 | full | Bisim | cloud 6/10 | 0.44 | 0.44 | 0.36 | 0.38 | 0.42 | 0.26 | ~0.32 | 0.38† |
 
-Checkpoints: prev Bisim@1000 `2026-06-26/23-30-32`; Anderson WM `by_tag/dinowm_n*`; cloud Bisim n5000/nfull eval in progress; prev Bisim@full `checkpoints_captialone/.../new_pushT90`.
+Checkpoints: small-n `by_tag/dino{wm,bisim}_n{25,50,100}`; prev Bisim@1000 `2026-06-26/23-30-32`; Anderson WM `by_tag/dinowm_n*`; cloud Bisim n5000/nfull eval in progress; prev Bisim@full `checkpoints_captialone/.../new_pushT90`.
 
 #### 1. Clean / lighting-color shift
 
