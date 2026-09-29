@@ -618,6 +618,10 @@ class PushTEnv(gym.Env):
             canvas.fill((230, 240, 255))
         elif vc == "LC":
             canvas.fill((255, 200, 160))
+        elif vc == "LCR":
+            canvas.fill((255, 170, 150))
+        elif vc == "LCB":
+            canvas.fill((170, 200, 255))
         elif vc == "LCG":
             ws = self.window_size
             for i in range(ws):
@@ -655,34 +659,105 @@ class PushTEnv(gym.Env):
 
         img = np.transpose(np.array(pygame.surfarray.pixels3d(canvas)), axes=(1, 0, 2))
         img = cv2.resize(img, (self.render_size, self.render_size))
-        if vc == "D":
-            h, w = img.shape[:2]
-            t = self._render_frame_idx
-            self._render_frame_idx += 1
-            rs = np.random.RandomState((t + self.distractor_seed) % (2**32 - 1))
-            for _ in range(6):
-                cx = int(rs.randint(0, w))
-                cy = int(rs.randint(0, h))
-                rad = int(rs.randint(3, 10))
-                col = tuple(int(x) for x in rs.randint(40, 255, size=3))
-                cv2.circle(img, (cx, cy), rad, col, -1)
-            cx = int(w // 2 + (w // 3) * np.sin(0.15 * t))
-            cy = int(h // 2 + (h // 3) * np.cos(0.12 * t))
-            cv2.circle(img, (cx, cy), 12, (255, 40, 40), -1)
-        if self.render_action:
-            if self.render_action and (self.latest_action is not None):
-                action = np.array(self.latest_action)
-                coord = (action / 512 * 96).astype(np.int32)
-                marker_size = int(8 / 96 * self.render_size)
-                thickness = int(1 / 96 * self.render_size)
-                cv2.drawMarker(
-                    img,
-                    coord,
-                    color=(255, 0, 0),
-                    markerType=cv2.MARKER_CROSS,
-                    markerSize=marker_size,
-                    thickness=thickness,
-                )
+        from env.visual_conditions import (
+            DYNAMIC_CONDITIONS,
+            TEXTURE_CONDITIONS,
+            VIEWPOINT_CONDITIONS,
+        )
+
+        if vc in TEXTURE_CONDITIONS:
+            img = self._apply_texture(img, vc)
+        elif vc in VIEWPOINT_CONDITIONS:
+            img = self._apply_viewpoint(img, vc)
+        elif vc in DYNAMIC_CONDITIONS or vc == "D":
+            img = self._apply_distractors(img)
+        if self.render_action and (self.latest_action is not None):
+            action = np.array(self.latest_action)
+            coord = (action / 512 * 96).astype(np.int32)
+            marker_size = int(8 / 96 * self.render_size)
+            thickness = int(1 / 96 * self.render_size)
+            cv2.drawMarker(
+                img,
+                coord,
+                color=(255, 0, 0),
+                markerType=cv2.MARKER_CROSS,
+                markerSize=marker_size,
+                thickness=thickness,
+            )
+        return img
+
+    def _apply_distractors(self, img: np.ndarray) -> np.ndarray:
+        h, w = img.shape[:2]
+        t = self._render_frame_idx
+        self._render_frame_idx += 1
+        rs = np.random.RandomState((t + self.distractor_seed) % (2**32 - 1))
+        for _ in range(6):
+            cx = int(rs.randint(0, w))
+            cy = int(rs.randint(0, h))
+            rad = int(rs.randint(3, 10))
+            col = tuple(int(x) for x in rs.randint(40, 255, size=3))
+            cv2.circle(img, (cx, cy), rad, col, -1)
+        cx = int(w // 2 + (w // 3) * np.sin(0.15 * t))
+        cy = int(h // 2 + (h // 3) * np.cos(0.12 * t))
+        cv2.circle(img, (cx, cy), 12, (255, 40, 40), -1)
+        return img
+
+    def _apply_texture(self, img: np.ndarray, vc: str) -> np.ndarray:
+        h, w = img.shape[:2]
+        out = img.astype(np.float32)
+        yy, xx = np.mgrid[0:h, 0:w]
+        if vc == "T1":
+            # fine checker
+            mask = ((xx // 8) + (yy // 8)) % 2
+            tint = np.where(mask[..., None], 0.92, 1.08)
+            out = np.clip(out * tint, 0, 255)
+        elif vc == "T2":
+            # horizontal stripes
+            mask = (yy // 10) % 2
+            tint = np.where(mask[..., None], 0.90, 1.05)
+            out = np.clip(out * tint, 0, 255)
+        elif vc == "T3":
+            # vertical stripes
+            mask = (xx // 10) % 2
+            tint = np.where(mask[..., None], 0.90, 1.05)
+            out = np.clip(out * tint, 0, 255)
+        elif vc == "T4":
+            # noise speckle
+            rs = np.random.RandomState(self.distractor_seed + 7)
+            noise = rs.uniform(0.85, 1.15, size=(h, w, 1)).astype(np.float32)
+            out = np.clip(out * noise, 0, 255)
+        elif vc == "T5":
+            # diagonal crosshatch
+            mask = ((xx + yy) // 12) % 2
+            tint = np.where(mask[..., None], 0.88, 1.06)
+            out = np.clip(out * tint, 0, 255)
+        return out.astype(np.uint8)
+
+    def _apply_viewpoint(self, img: np.ndarray, vc: str) -> np.ndarray:
+        h, w = img.shape[:2]
+        if vc == "V1":
+            # zoom in — center crop 75% then resize
+            margin = int(0.125 * h)
+            crop = img[margin : h - margin, margin : w - margin]
+            return cv2.resize(crop, (w, h), interpolation=cv2.INTER_LINEAR)
+        if vc == "V2":
+            # zoom out — shrink scene and pad with white
+            inner = int(0.72 * h)
+            small = cv2.resize(img, (inner, inner), interpolation=cv2.INTER_AREA)
+            pad = (h - inner) // 2
+            out = np.full_like(img, 255)
+            out[pad : pad + inner, pad : pad + inner] = small
+            return out
+        if vc == "V3":
+            # slight rotation
+            mat = cv2.getRotationMatrix2D((w / 2, h / 2), 12.0, 1.0)
+            return cv2.warpAffine(
+                img, mat, (w, h), borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255)
+            )
+        if vc == "V4":
+            # crop shift — top-left crop then resize
+            crop = img[int(0.08 * h) :, int(0.08 * w) :]
+            return cv2.resize(crop, (w, h), interpolation=cv2.INTER_LINEAR)
         return img
 
     def close(self):

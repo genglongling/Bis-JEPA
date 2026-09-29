@@ -70,6 +70,7 @@ ALL_MODEL_KEYS = [
     "proprio_encoder",
     "action_encoder",
     "bisim_model",
+    "wm_proj",
 ]
 
 
@@ -211,6 +212,7 @@ class PlanWorkspace:
             seed=self.eval_seed,
             preprocessor=self.data_preprocessor,
             n_plot_samples=self.cfg_dict["n_plot_samples"],
+            rollout_frames_dir=self.cfg_dict.get("rollout_frames_dir"),
         )
 
         if self.wandb_run is None or isinstance(
@@ -407,7 +409,7 @@ def load_ckpt(snapshot_path, device):
                 "the blob from GitHub / your training machine."
             )
         f.seek(0)
-        payload = torch.load(f, map_location=device)
+        payload = torch.load(f, map_location=device, weights_only=False)
     loaded_keys = []
     result = {}
     for k, v in payload.items():
@@ -449,8 +451,11 @@ def load_model(model_ckpt, train_cfg, num_action_repeat, device):
         result["decoder"] = None
 
     has_bisim = train_cfg.get('has_bisim', False)
+    wm_latent_dim = train_cfg.get("wm_latent_dim", None)
     if not has_bisim:
         result["bisim_model"] = None
+    if has_bisim or wm_latent_dim is None:
+        result.setdefault("wm_proj", None)
 
     model_kwargs = {
         "encoder": result["encoder"],
@@ -463,6 +468,7 @@ def load_model(model_ckpt, train_cfg, num_action_repeat, device):
         "concat_dim": train_cfg.concat_dim,
         "num_action_repeat": num_action_repeat,
         "num_proprio_repeat": train_cfg.num_proprio_repeat,
+        "wm_proj": result.get("wm_proj"),
     }
 
     if has_bisim:
@@ -488,8 +494,42 @@ def load_model(model_ckpt, train_cfg, num_action_repeat, device):
             "sigreg_sketch_dim": train_cfg.get('sigreg_sketch_dim', 64),
         })
 
+    # If WM projector missing from ckpt but config requests it, build fresh (encode-only).
+    if (
+        not has_bisim
+        and wm_latent_dim is not None
+        and result.get("wm_proj") is None
+    ):
+        from models.bisim import BisimModel
+
+        decoder_scale = 16
+        num_side_patches = train_cfg.img_size // decoder_scale
+        num_patches = num_side_patches ** 2
+        enc = result["encoder"]
+        emb_dim = getattr(enc, "emb_dim", 384)
+        model_kwargs["wm_proj"] = BisimModel(
+            input_dim=num_patches * emb_dim,
+            latent_dim=int(wm_latent_dim),
+            hidden_dim=train_cfg.get("bisim_hidden_dim", 256),
+            action_dim=train_cfg.action_emb_dim,
+            bypass_dinov2=False,
+            img_size=train_cfg.img_size,
+            num_patches=num_patches,
+            patch_emb_dim=emb_dim,
+            pos_encoding=train_cfg.get("bisim_pos_encoding", "grid_mlp"),
+            pos_hidden_dim=train_cfg.get(
+                "bisim_pos_hidden_dim", train_cfg.get("bisim_hidden_dim", 256)
+            ),
+        )
+
+    # Trained hydra.yaml may stash train-only flags under model: that VWorldModel rejects.
+    model_cfg = OmegaConf.create(OmegaConf.to_container(train_cfg.model, resolve=True))
+    with open_dict(model_cfg):
+        for k in ("use_precomputed_dino",):
+            model_cfg.pop(k, None)
+
     model = hydra.utils.instantiate(
-        train_cfg.model,
+        model_cfg,
         **model_kwargs
     )
     model.to(device)
@@ -519,7 +559,11 @@ class DummyWandbRun:
 
 def planning_main(cfg_dict):
     output_dir = cfg_dict["saved_folder"]
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    plan_device = os.environ.get("PLAN_DEVICE", "").strip()
+    if plan_device:
+        device = torch.device(plan_device)
+    else:
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     if cfg_dict["wandb_logging"]:
         wandb_run = wandb.init(
             project=f"plan_{cfg_dict['planner']['name']}", config=cfg_dict
@@ -534,6 +578,19 @@ def planning_main(cfg_dict):
     model_cfg = _load_trained_omega_config(model_path)
 
     seed(cfg_dict["seed"])
+    # Modal (and other remotes) store data under DATASET_DIR; trained hydra.yaml may
+    # still point at an absolute path from another machine.
+    with open_dict(model_cfg):
+        data_path = str(OmegaConf.select(model_cfg, "env.dataset.data_path") or "")
+        if data_path and not Path(data_path).is_dir():
+            ds_root = os.environ.get("DATASET_DIR", "").strip()
+            if ds_root:
+                alt = Path(ds_root) / "pusht_noise"
+                if alt.is_dir():
+                    log.info(
+                        f"Remapping env.dataset.data_path {data_path!r} -> {alt}"
+                    )
+                    model_cfg.env.dataset.data_path = str(alt)
     _, dset = hydra.utils.call(
         model_cfg.env.dataset,
         num_hist=model_cfg.num_hist,
@@ -567,8 +624,12 @@ def planning_main(cfg_dict):
     ) or str(model_cfg.env.name).startswith("maze2d-"):
         import env.pointmaze  # noqa: F401
 
-    # use dummy vector env for wall and deformable envs
-    if model_cfg.env.name == "wall" or model_cfg.env.name == "deformable_env":
+    # Serial env avoids subprocess spawn issues (macOS / single-eval figure capture).
+    use_serial_env = (
+        model_cfg.env.name in ("wall", "deformable_env")
+        or cfg_dict["n_evals"] == 1
+    )
+    if use_serial_env:
         from env.serial_vector_env import SerialVectorEnv
         env = SerialVectorEnv(
             [

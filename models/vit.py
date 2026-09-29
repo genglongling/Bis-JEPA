@@ -55,7 +55,12 @@ class Attention(nn.Module):
             nn.Linear(inner_dim, dim),
             nn.Dropout(dropout)
         ) if project_out else nn.Identity()
-        self.bias = generate_mask_matrix(NUM_PATCHES, NUM_FRAMES).to('cuda')
+        # CPU buffer — moved to the input device in forward (DDP ranks are not all cuda:0).
+        self.register_buffer(
+            "bias",
+            generate_mask_matrix(NUM_PATCHES, NUM_FRAMES),
+            persistent=False,
+        )
 
     def forward(self, x):
         (
@@ -69,8 +74,9 @@ class Attention(nn.Module):
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv)
 
         dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
-        # apply causal mask
-        dots = dots.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))
+        # apply causal mask (keep mask on same device as dots)
+        bias = self.bias.to(device=dots.device, dtype=dots.dtype)
+        dots = dots.masked_fill(bias[:, :, :T, :T] == 0, float("-inf"))
 
         attn = self.attend(dots)
         attn = self.dropout(attn)

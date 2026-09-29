@@ -1,7 +1,9 @@
+import json
 import os
 import torch
 import imageio
 import numpy as np
+from pathlib import Path
 from einops import rearrange, repeat
 from utils import (
     cfg_to_dict,
@@ -27,6 +29,7 @@ class PlanEvaluator:  # evaluator for planning
             seed,
             preprocessor,
             n_plot_samples,
+            rollout_frames_dir=None,
     ):
         self.obs_0 = obs_0
         self.obs_g = obs_g
@@ -38,6 +41,7 @@ class PlanEvaluator:  # evaluator for planning
         self.seed = seed
         self.preprocessor = preprocessor
         self.n_plot_samples = n_plot_samples
+        self.rollout_frames_dir = rollout_frames_dir
         self.device = next(wm.parameters()).device
         self.plot_full = False  # plot all frames or frames after frameskip
 
@@ -126,6 +130,14 @@ class PlanEvaluator:  # evaluator for planning
             i_z_obs=i_final_z_obs,
         )
 
+        if self.rollout_frames_dir:
+            self._export_env_rollout_frames(
+                e_visuals=e_visuals,
+                e_states=e_states,
+                action_len=action_len,
+                filename=filename,
+            )
+
         # plot trajs
         if self.wm.decoder is not None:
             if hasattr(self.wm, 'has_bisim') and self.wm.has_bisim:
@@ -180,7 +192,11 @@ class PlanEvaluator:  # evaluator for planning
 
         e_obs = move_to_device(self.preprocessor.transform_obs(e_obs), self.device)
         e_z_obs = self.wm.encode_obs(e_obs)
-        if hasattr(self.wm, 'has_bisim') and self.wm.has_bisim:
+        if hasattr(self.wm, "_project_visual") and (
+            getattr(self.wm, "has_bisim", False) or getattr(self.wm, "has_wm_proj", False)
+        ):
+            e_z_obs = self.wm._project_visual(e_z_obs, e_obs)
+        elif hasattr(self.wm, 'has_bisim') and self.wm.has_bisim:
             if hasattr(self.wm, 'bypass_dinov2') and self.wm.bypass_dinov2:
                 e_z_obs["visual"] = self.wm.encode_bisim(e_obs)
             else:
@@ -196,6 +212,52 @@ class PlanEvaluator:  # evaluator for planning
         })
 
         return logs, successes
+
+    def _export_env_rollout_frames(self, e_visuals, e_states, action_len, filename):
+        """Save env rollout RGB frames (works without a decoder)."""
+        out_root = Path(self.rollout_frames_dir)
+        out_root.mkdir(parents=True, exist_ok=True)
+
+        if isinstance(e_visuals, torch.Tensor):
+            visuals = e_visuals.detach().cpu().numpy()
+        else:
+            visuals = np.asarray(e_visuals)
+        if isinstance(e_states, torch.Tensor):
+            states = e_states.detach().cpu().numpy()
+        else:
+            states = np.asarray(e_states)
+
+        n_evals = visuals.shape[0]
+        agent_xy_traj = None
+        for idx in range(min(n_evals, self.n_plot_samples)):
+            length = action_len[idx] if isinstance(action_len, np.ndarray) else action_len
+            if length == np.inf:
+                t_end = visuals.shape[1]
+            else:
+                t_end = int(length * self.frameskip + 1)
+            t_end = min(t_end, visuals.shape[1])
+            sample_dir = out_root / f"{filename}_eval{idx}"
+            sample_dir.mkdir(parents=True, exist_ok=True)
+            for t in range(t_end):
+                frame = visuals[idx, t]
+                if frame.dtype != np.uint8:
+                    frame = np.clip(frame, 0, 255).astype(np.uint8)
+                imageio.imwrite(sample_dir / f"step_{t:03d}.png", frame)
+            if idx == 0:
+                agent_xy_traj = states[idx, :t_end, :2].tolist()
+
+        meta = {
+            "state_0": np.asarray(self.state_0).tolist(),
+            "state_g": np.asarray(self.state_g).tolist(),
+            "frameskip": int(self.frameskip),
+            "filename": filename,
+        }
+        if agent_xy_traj is not None:
+            meta["agent_xy_traj"] = agent_xy_traj
+        if hasattr(self.env, "goal_pose"):
+            meta["goal_pose"] = np.asarray(self.env.goal_pose).tolist()
+        with open(out_root / f"{filename}_meta.json", "w") as f:
+            json.dump(meta, f, indent=2)
 
     def _plot_rollout_compare(
             self, e_visuals, i_visuals, successes, save_video=False, filename=""

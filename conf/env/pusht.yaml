@@ -12,6 +12,12 @@ dataset:
   normalize_action: ${normalize_action}
   data_path: ${oc.env:DATASET_DIR}/pusht_noise
   split_ratio: 0.9
+  steps_per_epoch: ${training.steps_per_epoch}
+  val_steps_per_epoch: ${training.val_steps_per_epoch}
+  use_precomputed_dino: ${use_precomputed_dino}
+  dino_features_subdir: dino_features
+  dino_features_root: null
+  sampler_seed: ${training.seed}
   transform:
     _target_: "datasets.img_transforms.default_transform"
     img_size: ${img_size}

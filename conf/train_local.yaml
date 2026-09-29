@@ -38,6 +38,10 @@ training:
   num_reconstruct_samples: 6
   log_image_mosaics_to_wandb: true
   log_ground_truth_mosaic: true
+  # null = exhaustive TrajSlicerDataset; int = RandomTrajSamplerDataset fixed steps
+  steps_per_epoch: null
+  val_steps_per_epoch: 200
+  skip_openloop_rollout: false
   encoder_lr: 5e-7
   decoder_lr: 3e-4
   predictor_lr: 1e-5
@@ -50,6 +54,9 @@ concat_dim: 1
 
 normalize_action: True
 
+# Live DINO by default (Anderson resume_baselines_gpu012)
+use_precomputed_dino: false
+
 action_emb_dim: 10
 num_action_repeat: 1
 
@@ -61,6 +68,9 @@ bisim_latent_dim: 32
 bisim_hidden_dim: 256
 bisim_pos_encoding: grid_mlp
 bisim_pos_hidden_dim: 256
+# DINO-WM only: if set (and has_bisim=False), project DINO 384→wm_latent_dim with the
+# same patch MLP as Bisim (Linear→ResBlock→Linear + pos + LayerNorm). null = raw 384-d WM.
+wm_latent_dim: null
 bisim_coef: 1
 train_dinowm_aux: True
 dinowm_coef: 1.0

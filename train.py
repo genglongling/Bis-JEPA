@@ -120,15 +120,41 @@ class Trainer:
 
         seed(cfg.training.seed)
         log.info(f"Loading dataset from {self.cfg.env.dataset.data_path} ...")
-        self.datasets, traj_dsets = hydra.utils.call(
-            self.cfg.env.dataset,
+        dataset_kwargs = dict(
             num_hist=self.cfg.num_hist,
             num_pred=self.cfg.num_pred,
             frameskip=self.cfg.frameskip,
         )
+        if OmegaConf.select(self.cfg, "env.dataset.steps_per_epoch") is not None:
+            dataset_kwargs["steps_per_epoch"] = self.cfg.env.dataset.steps_per_epoch
+            dataset_kwargs["val_steps_per_epoch"] = self.cfg.env.dataset.get(
+                "val_steps_per_epoch", 200
+            )
+            dataset_kwargs["sampler_seed"] = self.cfg.env.dataset.get(
+                "sampler_seed", self.cfg.training.seed
+            )
+        if self.cfg.get("use_precomputed_dino", False):
+            dataset_kwargs["use_precomputed_dino"] = True
+            dataset_kwargs["dino_features_subdir"] = self.cfg.env.dataset.get(
+                "dino_features_subdir", "dino_features"
+            )
+            dino_root = self.cfg.env.dataset.get("dino_features_root")
+            if dino_root:
+                dataset_kwargs["dino_features_root"] = dino_root
+
+        self.datasets, traj_dsets = hydra.utils.call(
+            self.cfg.env.dataset,
+            **dataset_kwargs,
+        )
 
         self.train_traj_dset = traj_dsets["train"]
         self.val_traj_dset = traj_dsets["valid"]
+        self.use_random_epoch_sampler = hasattr(self.datasets["train"], "set_epoch")
+        log.info(
+            f"Dataset lengths — train: {len(self.datasets['train'])}, "
+            f"valid: {len(self.datasets['valid'])}"
+            + (" (random traj/window per step)" if self.use_random_epoch_sampler else "")
+        )
 
         self.dataloaders = {
             x: torch.utils.data.DataLoader(
@@ -159,6 +185,7 @@ class Trainer:
         self.predictor_dinowm = None
         self.decoder = None
         self.bisim_model = None  # Initialize bisim_model as None
+        self.wm_proj = None  # optional DINO→wm_latent_dim MLP (same arch as bisim)
         self.train_encoder = self.cfg.model.train_encoder
         self.train_predictor = self.cfg.model.train_predictor
         self.train_decoder = self.cfg.model.train_decoder
@@ -201,6 +228,14 @@ class Trainer:
         self._keys_to_save += (
             ["bisim_model", "bisim_optimizer"]
             if self.train_bisim and self.cfg.get('has_bisim', False)
+            else []
+        )
+        self._keys_to_save += (
+            ["wm_proj", "wm_proj_optimizer"]
+            if (
+                not self.cfg.get("has_bisim", False)
+                and self.cfg.get("wm_latent_dim", None) is not None
+            )
             else []
         )
         self._keys_to_save += ["action_encoder", "proprio_encoder"]
@@ -293,10 +328,16 @@ class Trainer:
 
         if self.cfg.has_predictor:
             if self.predictor is None:
+                wm_latent_dim = self.cfg.get("wm_latent_dim", None)
                 if self.cfg.get('has_bisim', False):
                     # use bisim latent dim
                     visual_emb_dim = self.cfg.get('bisim_latent_dim', 32)
                     log.info(f"Initializing predictor with bisimulation latent dim: {visual_emb_dim}")
+                elif wm_latent_dim is not None:
+                    visual_emb_dim = int(wm_latent_dim)
+                    log.info(
+                        f"Initializing predictor with WM projected dim: {visual_emb_dim}"
+                    )
                 else:
                     # use standard encoder dim
                     visual_emb_dim = self.encoder.emb_dim
@@ -410,11 +451,46 @@ class Trainer:
                 for param in self.bisim_model.parameters():
                     param.requires_grad = False
 
+        # DINO-WM dim projector: same patch MLP as Bisim, no bisimulation loss.
+        wm_latent_dim = self.cfg.get("wm_latent_dim", None)
+        if (
+            not self.cfg.get("has_bisim", False)
+            and wm_latent_dim is not None
+            and self.wm_proj is None
+        ):
+            decoder_scale = 16
+            num_side_patches = self.cfg.img_size // decoder_scale
+            num_patches_wm = num_side_patches ** 2
+            if self.encoder.latent_ndim == 1:
+                input_dim = self.encoder.emb_dim
+            else:
+                input_dim = num_patches_wm * self.encoder.emb_dim
+            self.wm_proj = BisimModel(
+                input_dim=input_dim,
+                latent_dim=int(wm_latent_dim),
+                hidden_dim=self.cfg.get("bisim_hidden_dim", 256),
+                action_dim=self.cfg.action_emb_dim,
+                bypass_dinov2=False,
+                img_size=self.cfg.img_size,
+                num_patches=num_patches_wm,
+                patch_emb_dim=self.encoder.emb_dim,
+                pos_encoding=self.cfg.get("bisim_pos_encoding", "grid_mlp"),
+                pos_hidden_dim=self.cfg.get(
+                    "bisim_pos_hidden_dim", self.cfg.get("bisim_hidden_dim", 256)
+                ),
+            )
+            log.info(
+                f"Initialized WM projector MLP (same as bisim): "
+                f"{self.encoder.emb_dim} → {wm_latent_dim}"
+            )
+
         self.encoder, self.predictor = self.accelerator.prepare(self.encoder, self.predictor)
         if self.decoder is not None:
             self.decoder = self.accelerator.prepare(self.decoder)
         if self.bisim_model is not None:
             self.bisim_model = self.accelerator.prepare(self.bisim_model)
+        if self.wm_proj is not None:
+            self.wm_proj = self.accelerator.prepare(self.wm_proj)
         if self.predictor_dinowm is not None:
             self.predictor_dinowm = self.accelerator.prepare(self.predictor_dinowm)
         train_dinowm_aux = (
@@ -431,6 +507,7 @@ class Trainer:
             predictor_dinowm=self.predictor_dinowm,
             decoder=self.decoder,
             bisim_model=self.bisim_model,
+            wm_proj=self.wm_proj,
             proprio_dim=proprio_emb_dim,
             action_dim=action_emb_dim,
             concat_dim=self.cfg.concat_dim,
@@ -476,6 +553,14 @@ class Trainer:
                 lr=self.cfg.training.get('bisim_lr', 5e-7),
             )
             self.bisim_optimizer = self.accelerator.prepare(self.bisim_optimizer)
+
+        if self.wm_proj is not None:
+            # Same LR as bisim MLP — identical architecture.
+            self.wm_proj_optimizer = torch.optim.AdamW(
+                self.wm_proj.parameters(),
+                lr=self.cfg.training.get("bisim_lr", 5e-7),
+            )
+            self.wm_proj_optimizer = self.accelerator.prepare(self.wm_proj_optimizer)
 
         if self.cfg.has_predictor:
             predictor_params = list(self.predictor.parameters())
@@ -538,8 +623,10 @@ class Trainer:
             self.monitor_thread.start()
 
         init_epoch = self.epoch + 1  # epoch starts from 1
-        for epoch in range(init_epoch, init_epoch + self.total_epochs):
+        # Train through training.epochs inclusive (resume-safe: epoch 24 + epochs=50 → 25..50).
+        for epoch in range(init_epoch, self.total_epochs + 1):
             self.epoch = epoch
+            self._set_sampler_epoch(epoch)
             self.accelerator.wait_for_everyone()
             self.train()
             self.accelerator.wait_for_everyone()
@@ -575,6 +662,12 @@ class Trainer:
                     )
                     with lock:
                         self.job_set.update(jobs)
+
+    def _set_sampler_epoch(self, epoch: int):
+        for split in ("train", "valid"):
+            dset = self.datasets.get(split)
+            if dset is not None and hasattr(dset, "set_epoch"):
+                dset.set_epoch(epoch)
 
     def err_eval_single(self, z_pred, z_tgt):
         logs = {}
@@ -627,6 +720,8 @@ class Trainer:
                 self.action_encoder_optimizer.zero_grad()
             if self.cfg.get('has_bisim', False) and self.train_bisim:
                 self.bisim_optimizer.zero_grad()
+            if self.wm_proj is not None:
+                self.wm_proj_optimizer.zero_grad()
 
             self.accelerator.backward(loss)
 
@@ -639,6 +734,8 @@ class Trainer:
                 self.action_encoder_optimizer.step()
             if self.cfg.get('has_bisim', False) and self.train_bisim:
                 self.bisim_optimizer.step()
+            if self.wm_proj is not None:
+                self.wm_proj_optimizer.step()
 
             loss = self.accelerator.gather_for_metrics(loss).mean()
 
@@ -662,6 +759,8 @@ class Trainer:
 
                     if self.cfg.get('has_bisim', False):
                         z_tgt["visual"] = self.model.encode_bisim(z_tgt)
+                    elif getattr(self.model, "has_wm_proj", False):
+                        z_tgt = self.model._apply_wm_proj(z_tgt)
 
                     state_tgt = state[:, -self.model.num_hist:]  # (b, num_hist, dim)
                     err_logs = self.err_eval(z_obs_out, z_tgt)
@@ -719,7 +818,11 @@ class Trainer:
 
     def val(self):
         self.model.eval()
-        if len(self.train_traj_dset) > 0 and self.cfg.has_predictor:
+        if (
+            len(self.train_traj_dset) > 0
+            and self.cfg.has_predictor
+            and not self.cfg.training.get("skip_openloop_rollout", False)
+        ):
             with torch.no_grad():
                 train_rollout_logs = self.openloop_rollout(
                     self.train_traj_dset, mode="train"
@@ -768,6 +871,8 @@ class Trainer:
 
                     if self.cfg.get('has_bisim', False):
                         z_tgt["visual"] = self.model.encode_bisim(z_tgt)
+                    elif getattr(self.model, "has_wm_proj", False):
+                        z_tgt = self.model._apply_wm_proj(z_tgt)
 
                     state_tgt = state[:, -self.model.num_hist:]  # (b, num_hist, dim)
                     err_logs = self.err_eval(z_obs_out, z_tgt)
@@ -873,14 +978,8 @@ class Trainer:
             for k in obs.keys():
                 obs_g[k] = obs[k][-1].unsqueeze(0).unsqueeze(0).to(self.device)
             z_g = self.model.encode_obs(obs_g)
-
-            # encode goal
-            if self.cfg.get('has_bisim', False):
-                if self.cfg.model.get('bypass_dinov2', False):
-                    z_bisim_g = self.model.encode_bisim(obs_g)
-                else:
-                    z_bisim_g = self.model.encode_bisim(z_g)
-                z_g_bisim = {"visual": z_bisim_g, "proprio": z_g["proprio"]}
+            # Project goal into planning/JEPA space (bisim encode or WM dim MLP).
+            z_g_plan = self.model._project_visual(z_g, obs_g)
 
             actions = act.unsqueeze(0)
 
@@ -896,10 +995,12 @@ class Trainer:
                 if self.cfg.get('has_bisim', False):
                     z_obses, z = self.model.rollout(obs_0, actions)
                     z_obs_last = slice_trajdict_with_t(z_obses, start_idx=-1, end_idx=None)
-                    div_loss = self.err_eval_single(z_obs_last, z_g_bisim)
+                    div_loss = self.err_eval_single(z_obs_last, z_g_plan)
 
                     z_bisim_last = z_obses["visual"][:, -1:, :]
-                    bisim_dist = torch.norm(z_bisim_last - z_bisim_g, dim=-1).mean()
+                    bisim_dist = torch.norm(
+                        z_bisim_last - z_g_plan["visual"], dim=-1
+                    ).mean()
 
                     log_key = f"bisim_dist_rollout{postfix}"
                     if log_key in logs:
@@ -909,7 +1010,7 @@ class Trainer:
                 else:
                     z_obses, z = self.model.rollout(obs_0, actions)
                     z_obs_last = slice_trajdict_with_t(z_obses, start_idx=-1, end_idx=None)
-                    div_loss = self.err_eval_single(z_obs_last, z_g)
+                    div_loss = self.err_eval_single(z_obs_last, z_g_plan)
 
                 for k in div_loss.keys():
                     log_key = f"z_{k}_err_rollout{postfix}"
@@ -979,7 +1080,9 @@ class Trainer:
                     Cov reg: {epoch_log.get('val_bisim_cov_reg', 0):.4f}{vicreg_note}"
             log.info(val_bisim_msg)
 
-        append_loss_to_csv(epoch_log, "training_loss_log.csv")
+        # Only rank 0 writes CSV — multi-rank concurrent rewrite corrupts the file (NUL bytes).
+        if self.accelerator.is_main_process:
+            append_loss_to_csv(epoch_log, "training_loss_log.csv")
 
         if self.accelerator.is_main_process:
             self.wandb_run.log(epoch_log)

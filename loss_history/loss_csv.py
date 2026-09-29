@@ -1,5 +1,6 @@
 import csv
 import os
+import tempfile
 
 
 def append_loss_to_csv(epoch_log, csv_path="training_log.csv"):
@@ -36,15 +37,50 @@ def append_loss_to_csv(epoch_log, csv_path="training_log.csv"):
 
     rows = []
     if os.path.isfile(csv_path):
-        with open(csv_path, mode="r", newline="") as f:
-            reader = csv.DictReader(f)
+        try:
+            raw = open(csv_path, "rb").read().replace(b"\x00", b"")
+            text = raw.decode("utf-8", errors="replace")
+            reader = csv.DictReader(text.splitlines())
             for row in reader:
-                if not row:
+                if not row or not any(row.values()):
                     continue
                 rows.append({k: row.get(k) for k in fieldnames})
-    rows.append(new_row)
+        except (OSError, csv.Error, UnicodeError):
+            rows = []
 
-    with open(csv_path, mode="w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
+    # Keep one row per epoch (last write wins) so multi-rank races don't duplicate.
+    by_epoch = {}
+    for row in rows:
+        ep = row.get("epoch")
+        if ep is None or ep == "":
+            continue
+        by_epoch[str(ep)] = row
+    ep_new = new_row.get("epoch")
+    if ep_new is not None and ep_new != "":
+        by_epoch[str(ep_new)] = new_row
+
+    def _ep_key(ep):
+        try:
+            return int(float(ep))
+        except (TypeError, ValueError):
+            return ep
+
+    ordered = [by_epoch[k] for k in sorted(by_epoch.keys(), key=_ep_key)]
+
+    # Atomic replace avoids truncated/NUL files when multiple writers collide.
+    dirname = os.path.dirname(os.path.abspath(csv_path)) or "."
+    fd, tmp_path = tempfile.mkstemp(prefix=".training_loss_", suffix=".csv", dir=dirname)
+    try:
+        with os.fdopen(fd, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(ordered)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, csv_path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise

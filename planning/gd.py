@@ -82,7 +82,15 @@ class GDPlanner(BasePlanner):
             self.preprocessor.transform_obs(obs_g), self.device
         )
         z_obs_g = self.wm.encode_obs(trans_obs_g)
-        if hasattr(self.wm, 'has_bisim') and self.wm.has_bisim:
+        if hasattr(self.wm, "_project_visual") and (
+            getattr(self.wm, "has_bisim", False) or getattr(self.wm, "has_wm_proj", False)
+        ):
+            if not hasattr(self, "_proj_goal_logged"):
+                kind = "bisim" if getattr(self.wm, "has_bisim", False) else "wm_proj"
+                print(f"[GD] Planning with {kind} visual (goal projected to match rollout latent)")
+                self._proj_goal_logged = True
+            z_obs_g = self.wm._project_visual(z_obs_g, trans_obs_g)
+        elif hasattr(self.wm, 'has_bisim') and self.wm.has_bisim:
             if not hasattr(self, '_bisim_goal_logged'):
                 print(f"[GD] Planning in bisimulation space (goal encoded, patch_dim={self.wm.bisim_patch_dim})")
                 self._bisim_goal_logged = True

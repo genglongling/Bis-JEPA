@@ -1,14 +1,19 @@
 import torch
-import decord
 import pickle
 import numpy as np
 from pathlib import Path
 from einops import rearrange
-from decord import VideoReader
 from typing import Callable, Optional
-from .traj_dset import TrajDataset, TrajSlicerDataset
+from .traj_dset import TrajDataset, TrajSlicerDataset, RandomTrajSamplerDataset
 from typing import Optional, Callable, Any
-decord.bridge.set_bridge("torch")
+
+
+def _video_reader(path: str):
+    import decord
+    from decord import VideoReader
+
+    decord.bridge.set_bridge("torch")
+    return VideoReader(path, num_threads=1)
 
 # precomputed dataset stats
 ACTION_MEAN = torch.tensor([-0.0087, 0.0068])
@@ -105,10 +110,12 @@ class PushTDataset(TrajDataset):
             result.append(self.actions[i, :T, :])
         return torch.cat(result, dim=0)
 
-    def get_frames(self, idx, frames):
+    def get_frames(self, idx, frames, act_frames=None):
         vid_dir = self.data_path / "obses"
-        reader = VideoReader(str(vid_dir / f"episode_{idx:03d}.mp4"), num_threads=1)
-        act = self.actions[idx, frames]
+        reader = _video_reader(str(vid_dir / f"episode_{idx:03d}.mp4"))
+        if act_frames is None:
+            act_frames = frames
+        act = self.actions[idx, act_frames]
         state = self.states[idx, frames]
         proprio = self.proprios[idx, frames]
         shape = self.shapes[idx]
@@ -144,7 +151,20 @@ def load_pusht_slice_train_val(
     num_pred=0,
     frameskip=0,
     with_velocity=True,
+    steps_per_epoch=None,
+    val_steps_per_epoch=200,
+    use_precomputed_dino=False,
+    dino_features_subdir="dino_features",
+    dino_features_root=None,
+    sampler_seed=0,
 ):
+    if use_precomputed_dino:
+        raise NotImplementedError(
+            "use_precomputed_dino=True requires the offline DINO cache path; "
+            "Anderson live-DINO runs set use_precomputed_dino=false."
+        )
+    _ = (dino_features_subdir, dino_features_root)  # reserved for cache wiring
+
     train_dset = PushTDataset(
         n_rollout=n_rollout,
         transform=transform,
@@ -161,8 +181,24 @@ def load_pusht_slice_train_val(
     )
 
     num_frames = num_hist + num_pred
-    train_slices = TrajSlicerDataset(train_dset, num_frames, frameskip)
-    val_slices = TrajSlicerDataset(val_dset, num_frames, frameskip)
+    if steps_per_epoch is not None:
+        train_slices = RandomTrajSamplerDataset(
+            train_dset,
+            num_frames,
+            frameskip,
+            steps_per_epoch=int(steps_per_epoch),
+            seed=int(sampler_seed),
+        )
+        val_slices = RandomTrajSamplerDataset(
+            val_dset,
+            num_frames,
+            frameskip,
+            steps_per_epoch=int(val_steps_per_epoch),
+            seed=int(sampler_seed) + 1,
+        )
+    else:
+        train_slices = TrajSlicerDataset(train_dset, num_frames, frameskip)
+        val_slices = TrajSlicerDataset(val_dset, num_frames, frameskip)
 
     datasets = {}
     datasets["train"] = train_slices

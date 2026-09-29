@@ -91,13 +91,79 @@ class TrajSlicerDataset(TrajDataset):
 
     def __getitem__(self, idx):
         i, start, end = self.slices[idx]
+        return self._get_slice(i, start, end)
+
+    def _get_slice(self, i: int, start: int, end: int):
+        if hasattr(self.dataset, "get_frames"):
+            vis_frames = list(range(start, end, self.frameskip))
+            act_frames = list(range(start, end))
+            obs, act, state, _ = self.dataset.get_frames(
+                i, vis_frames, act_frames=act_frames
+            )
+            act = rearrange(act, "(n f) d -> n (f d)", n=self.num_frames)
+            return tuple([obs, act, state])
+
         obs, act, state, _ = self.dataset[i]
         for k, v in obs.items():
             obs[k] = v[start:end:self.frameskip]
         state = state[start:end:self.frameskip]
         act = act[start:end]
-        act = rearrange(act, "(n f) d -> n (f d)", n=self.num_frames)  # concat actions
+        act = rearrange(act, "(n f) d -> n (f d)", n=self.num_frames)
         return tuple([obs, act, state])
+
+
+class RandomTrajSamplerDataset(TrajSlicerDataset):
+    """
+    Fixed-length epoch via random trajectory + temporal window sampling.
+    Each __getitem__ draw is independent (idx is ignored).
+    Anderson live-DINO runs use steps_per_epoch=105340 (~n1000-sized epoch).
+    """
+
+    def __init__(
+        self,
+        dataset: TrajDataset,
+        num_frames: int,
+        frameskip: int = 1,
+        steps_per_epoch: int = 1000,
+        process_actions: str = "concat",
+        seed: int = 0,
+    ):
+        self.dataset = dataset
+        self.num_frames = num_frames
+        self.frameskip = frameskip
+        self.steps_per_epoch = int(steps_per_epoch)
+        self.base_seed = int(seed)
+        self.rng = np.random.default_rng(self.base_seed)
+
+        self.valid_trajs = []
+        window = num_frames * frameskip
+        for i in range(len(self.dataset)):
+            T = self.dataset.get_seq_length(i)
+            if T >= window:
+                self.valid_trajs.append(i)
+        if not self.valid_trajs:
+            raise ValueError("No trajectories long enough for RandomTrajSamplerDataset")
+
+        self.proprio_dim = self.dataset.proprio_dim
+        if process_actions == "concat":
+            self.action_dim = self.dataset.action_dim * self.frameskip
+        else:
+            self.action_dim = self.dataset.action_dim
+        self.state_dim = self.dataset.state_dim
+
+    def set_epoch(self, epoch: int):
+        self.rng = np.random.default_rng(self.base_seed + int(epoch))
+
+    def __len__(self):
+        return self.steps_per_epoch
+
+    def __getitem__(self, idx):
+        i = int(self.rng.choice(self.valid_trajs))
+        T = self.dataset.get_seq_length(i)
+        max_start = T - self.num_frames * self.frameskip
+        start = int(self.rng.integers(0, max_start + 1))
+        end = start + self.num_frames * self.frameskip
+        return self._get_slice(i, start, end)
 
 
 def random_split_traj(

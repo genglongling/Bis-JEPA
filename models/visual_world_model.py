@@ -17,6 +17,7 @@ class VWorldModel(nn.Module):
             decoder,
             predictor,
             bisim_model=None,
+            wm_proj=None,
             predictor_dinowm=None,
             bisim_latent_dim=32,
             bisim_hidden_dim=256,
@@ -71,6 +72,8 @@ class VWorldModel(nn.Module):
         self.emb_dim = self.encoder.emb_dim + (self.action_dim + self.proprio_dim) * (concat_dim)  # Not used
 
         self.has_bisim = bisim_model is not None
+        self.wm_proj = wm_proj
+        self.has_wm_proj = wm_proj is not None
         self.bypass_dinov2 = bypass_dinov2
         self._bisim_encode_logged = False
         self.dinowm_coef = dinowm_coef
@@ -79,6 +82,8 @@ class VWorldModel(nn.Module):
         )
         if self.train_dinowm_aux:
             print(f"DINO-WM auxiliary JEPA head enabled (dinowm_coef={self.dinowm_coef})")
+        if self.has_wm_proj:
+            print("DINO-WM visual projector MLP enabled (same architecture as bisim)")
 
         if self.has_bisim:
             self.bisim_model = bisim_model
@@ -202,6 +207,8 @@ class VWorldModel(nn.Module):
             self.predictor_dinowm.train(mode)
         if self.has_bisim and self.train_bisim:
             self.bisim_model.train(mode)
+        if self.has_wm_proj:
+            self.wm_proj.train(mode)
         self.proprio_encoder.train(mode)
         self.action_encoder.train(mode)
         if self.decoder is not None and self.train_decoder:
@@ -216,6 +223,8 @@ class VWorldModel(nn.Module):
             self.predictor_dinowm.eval()
         if self.has_bisim:
             self.bisim_model.eval()
+        if self.has_wm_proj:
+            self.wm_proj.eval()
         self.proprio_encoder.eval()
         self.action_encoder.eval()
         if self.decoder is not None:
@@ -485,6 +494,22 @@ class VWorldModel(nn.Module):
             out["visual"] = self.encode_bisim(z_dct)
         return out
 
+    def _apply_wm_proj(self, z_dct):
+        """Project DINO patch tokens with the same MLP architecture as bisim."""
+        if not self.has_wm_proj:
+            return z_dct
+        proj = self.wm_proj.module if hasattr(self.wm_proj, "module") else self.wm_proj
+        return {
+            "visual": proj.encode(z_dct["visual"]),
+            "proprio": z_dct["proprio"],
+        }
+
+    def _project_visual(self, z_dct, obs):
+        """Bisim encode if present, else optional WM dim projector."""
+        if self.has_bisim:
+            return self._apply_bisim_visual(z_dct, obs)
+        return self._apply_wm_proj(z_dct)
+
     def _compute_z_jepa_loss(self, z_pred, z_tgt):
         if self.concat_dim == 0:
             z_visual_loss = self.emb_criterion(
@@ -518,7 +543,7 @@ class VWorldModel(nn.Module):
         """
         z_dct = self.encode_obs(obs)
         act_emb = self.encode_act(act)
-        z_dct = self._apply_bisim_visual(z_dct, obs)
+        z_dct = self._project_visual(z_dct, obs)
         return self._build_z_from_dct(z_dct, act_emb)
 
     def encode_act(self, act):
@@ -614,8 +639,8 @@ class VWorldModel(nn.Module):
         z_dct = self.encode_obs(obs)
         act_emb = self.encode_act(act)
         z_dino = self._build_z_from_dct(z_dct, act_emb)
-        z_dct_bisim = self._apply_bisim_visual(z_dct, obs)
-        z = self._build_z_from_dct(z_dct_bisim, act_emb)
+        z_dct_proj = self._project_visual(z_dct, obs)
+        z = self._build_z_from_dct(z_dct_proj, act_emb)
         z_src = z[:, : self.num_hist, :, :]
         z_tgt = z[:, self.num_pred:, :, :]
         visual_src = obs['visual'][:, : self.num_hist, ...]

@@ -193,7 +193,7 @@ Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. **
 
 ### Legacy six + mild (summary)
 
-Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. † = mean over completed conditions only. Small-n (25/50/100) Anderson: GPU0=n25, GPU1=n50, GPU2=n100 (WM→Bisim each), `steps_per_epoch` S(n)=141/282/564. T2/V1/V2, WM mild, and Bisim n1000 still pending.
+Planning: `plan_pusht_local`, `n_evals=50`, `goal_H=5`, `planner.max_iter=5`. † = mean over completed conditions only. Small-n (25/50/100) Anderson: GPU0=n25, GPU1=n50, GPU2=n100 (**WM∥Bisim**), `steps_per_epoch` S(n)=141/282/564. T2/V1/V2, WM mild, and Bisim n1000 still pending.
 
 | n | Method | Source | NC | SC | C | LC | LCG | D1 | T1 | Mean† |
 |---|--------|--------|----|----|---|----|-----|----|----|-------|

@@ -18,7 +18,8 @@ seed: 99
 n_evals: 50
 goal_source: 'dset'
 goal_H: 5
-n_plot_samples: 10
+n_plot_samples: 1
+rollout_frames_dir: null
 
 debug_dset_init: False
 
