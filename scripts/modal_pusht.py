@@ -149,14 +149,24 @@ def _ensure_dataset(data_root: Path) -> None:
         raise FileNotFoundError(marker)
 
 
+def _gpu_count() -> int:
+    import torch
+
+    count = int(torch.cuda.device_count())
+    names = [torch.cuda.get_device_name(i) for i in range(count)]
+    print(f"Using {count} GPU(s): {names}", flush=True)
+    return max(count, 1)
+
+
 def _eval_six(ckpt_base: Path, run_name: str) -> None:
-    """Run the six visual conditions four at a time, one GPU each."""
+    """Run the six visual conditions, one per GPU, in as many waves as needed."""
     rates = {}
     plan_dirs = {}
     failed = []
     conds = list(CONDITIONS)
-    for start in range(0, len(conds), 4):
-        chunk = conds[start : start + 4]
+    width = _gpu_count()
+    for start in range(0, len(conds), width):
+        chunk = conds[start : start + width]
         procs = []
         for gpu, cond in enumerate(chunk):
             out_json = ckpt_base / f"sixcond_{cond}.json"
@@ -222,12 +232,29 @@ def _commit_volume_until(stop: threading.Event) -> None:
             print(f"volume commit failed: {exc}", flush=True)
 
 
+# Ranked fallback: take the first type with free capacity instead of queueing for A100:4.
+GPU_FALLBACK = [
+    "L4:4",
+    "A10G:4",
+    "L40S:4",
+    "H100:4",
+    "A100:4",
+    "L4",
+    "A10G",
+    "L40S",
+    "H100",
+    "A100",
+    "T4",
+]
+
+
 @app.function(
     image=image,
-    gpu="A100:4",
+    gpu=GPU_FALLBACK,
     timeout=24 * 60 * 60,
-    cpu=16,
-    memory=65536,
+    # A low request lets a free single-GPU worker start immediately.
+    cpu=(4, 16),
+    memory=(16384, 65536),
     volumes={"/vol": volume},
 )
 def train_and_eval(n_rollout: int = 1000) -> dict:
@@ -318,12 +345,13 @@ def _train_eval_once(
     if epochs_left == 0:
         print("Training already reached 50 epochs. Evaluating the saved checkpoint.", flush=True)
     else:
+        n_gpu = _gpu_count()
         _run(
         [
             "accelerate",
             "launch",
             "--num_processes",
-            "4",
+            str(n_gpu),
             "--num_machines",
             "1",
             "--mixed_precision",
@@ -338,10 +366,10 @@ def _train_eval_once(
             f"hydra.sweep.dir={run_dir}",
             f"env.dataset.n_rollout={n_override}",
             "env.dataset.use_precomputed_dino=true",
-            "env.num_workers=4",
+            "env.num_workers=2",
             f"wandb_display_name={run_name}",
             "training.seed=0",
-            "training.batch_size=20",
+            f"training.batch_size={5 * n_gpu}",
             f"training.epochs={epochs_left}",
             "training.steps_per_epoch=1000",
             "training.val_steps_per_epoch=200",
