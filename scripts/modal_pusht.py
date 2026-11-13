@@ -290,13 +290,10 @@ def train_and_eval_l4x4(n_rollout: int = 1000) -> dict:
     timeout=24 * 60 * 60,
     cpu=16,
     memory=65536,
-    nonpreemptible=True,
     volumes={"/vol": volume},
 )
 def train_and_eval_a100x4(n_rollout: int = 1000) -> dict:
-    """Same n=1000 run on four A100s, stored apart from the other jobs.
-    nonpreemptible so a spot interruption does not drop a finished epoch.
-    """
+    """Same n=1000 run on four A100s, stored apart from the other jobs."""
     tag = _tag(n_rollout)
     return _launch_train(
         n_rollout,
