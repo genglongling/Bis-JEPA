@@ -243,14 +243,42 @@ def _commit_volume_until(stop: threading.Event) -> None:
 )
 def train_and_eval(n_rollout: int = 1000) -> dict:
     """Train DINO-Bisim at this rollout cap, evaluate six PushT conditions, maybe continue."""
+    return _launch_train(n_rollout, spawn_larger=True)
+
+
+@app.function(
+    image=image,
+    gpu="T4:4",
+    timeout=24 * 60 * 60,
+    cpu=(8, 16),
+    memory=(32768, 65536),
+    volumes={"/vol": volume},
+)
+def train_and_eval_t4x4(n_rollout: int = 1000) -> dict:
+    """Same n=1000 run on four T4s, stored apart from the single-GPU job."""
+    tag = _tag(n_rollout)
+    return _launch_train(
+        n_rollout,
+        run_tag=f"{tag}-t4x4",
+        seed_tag=tag,
+        spawn_larger=False,
+    )
+
+
+def _launch_train(
+    n_rollout: int,
+    run_tag: str | None = None,
+    seed_tag: str | None = None,
+    spawn_larger: bool = True,
+) -> dict:
     os.environ["DATASET_DIR"] = "/vol/data"
     os.environ["WANDB_MODE"] = "offline"
-    os.environ["WANDB_DIR"] = "/vol/wandb"
+    os.environ["WANDB_DIR"] = "/vol/wandb" if run_tag is None else f"/vol/wandb/{run_tag}"
     os.environ["TORCH_HOME"] = "/vol/torch"
     os.environ["SDL_VIDEODRIVER"] = "dummy"
     os.environ["SDL_AUDIODRIVER"] = "dummy"
     os.environ["HYDRA_FULL_ERROR"] = "1"
-    Path("/vol/wandb").mkdir(parents=True, exist_ok=True)
+    Path(os.environ["WANDB_DIR"]).mkdir(parents=True, exist_ok=True)
     Path("/vol/torch").mkdir(parents=True, exist_ok=True)
 
     _ensure_dataset(Path("/vol/data"))
@@ -260,24 +288,29 @@ def train_and_eval(n_rollout: int = 1000) -> dict:
     committer = threading.Thread(target=_commit_volume_until, args=(stop_commit,), daemon=True)
     committer.start()
 
-    tag = _tag(n_rollout)
+    tag = run_tag or _tag(n_rollout)
     run_name = f"dinobisim_{tag}"
     ckpt_base = Path("/vol/runs") / tag
     ckpt_base.mkdir(parents=True, exist_ok=True)
     run_dir = ckpt_base / "outputs" / run_name
     n_override = "null" if n_rollout < 0 else str(n_rollout)
+    seed_run_dir = None
+    if seed_tag is not None:
+        seed_run_dir = Path("/vol/runs") / seed_tag / "outputs" / f"dinobisim_{seed_tag}"
 
     try:
-        summary = _train_eval_once(ckpt_base, run_dir, run_name, n_override, n_rollout)
+        summary = _train_eval_once(
+            ckpt_base, run_dir, run_name, n_override, n_rollout, seed_run_dir=seed_run_dir
+        )
     finally:
         stop_commit.set()
         volume.commit()
 
-    if n_rollout == 1000 and summary["improved_vs_previous_n1000"]:
+    if spawn_larger and n_rollout == 1000 and summary["improved_vs_previous_n1000"]:
         print("n=1000 improved. Spawning n=5000 and n=full.", flush=True)
         train_and_eval.spawn(5000)
         train_and_eval.spawn(-1)
-    elif n_rollout == 1000:
+    elif n_rollout == 1000 and not summary["improved_vs_previous_n1000"]:
         print("n=1000 did not improve on the previous DINO-Bisim mean. Stopping.", flush=True)
     return summary
 
@@ -295,8 +328,37 @@ def _epochs_left(run_dir: Path, target: int = 50) -> int:
     return left
 
 
+def _seed_checkpoints(run_dir: Path, source_run_dir: Path) -> None:
+    """Copy the newest numbered checkpoint so a second job can resume without sharing files."""
+    dest = run_dir / "checkpoints"
+    if any(dest.glob("model_*.pth")):
+        print(f"Keeping existing checkpoints in {dest}", flush=True)
+        return
+    src = source_run_dir / "checkpoints"
+    if not src.is_dir():
+        print(f"No source checkpoints at {src}", flush=True)
+        return
+    best: tuple[int, Path] | None = None
+    for path in src.glob("model_*.pth"):
+        suffix = path.stem.removeprefix("model_")
+        if suffix.isdigit() and (best is None or int(suffix) > best[0]):
+            best = (int(suffix), path)
+    if best is None:
+        print(f"No numbered checkpoints in {src}", flush=True)
+        return
+    dest.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(best[1], dest / best[1].name)
+    shutil.copy2(best[1], dest / "model_latest.pth")
+    print(f"Seeded epoch {best[0]} from {best[1]}", flush=True)
+
+
 def _train_eval_once(
-    ckpt_base: Path, run_dir: Path, run_name: str, n_override: str, n_rollout: int
+    ckpt_base: Path,
+    run_dir: Path,
+    run_name: str,
+    n_override: str,
+    n_rollout: int,
+    seed_run_dir: Path | None = None,
 ) -> dict:
     # One download. Four accelerate processes would otherwise race on the hub cache.
     _run(
@@ -325,6 +387,8 @@ def _train_eval_once(
     if run_dir.exists() and not marker.exists():
         shutil.rmtree(run_dir)
     marker.write_text(json.dumps({"steps_per_epoch": 1000, "val_steps_per_epoch": 200, "precomputed_dino": True}))
+    if seed_run_dir is not None:
+        _seed_checkpoints(run_dir, seed_run_dir)
     epochs_left = _epochs_left(run_dir)
     if epochs_left == 0:
         print("Training already reached 50 epochs. Evaluating the saved checkpoint.", flush=True)
@@ -387,6 +451,7 @@ def _train_eval_once(
 
 
 @app.local_entrypoint()
-def main() -> None:
-    summary = train_and_eval.remote(1000)
+def main(variant: str = "default") -> None:
+    fn = train_and_eval_t4x4 if variant == "t4x4" else train_and_eval
+    summary = fn.remote(1000)
     print(json.dumps(summary, indent=2))
