@@ -1,5 +1,10 @@
 import torch
 import torch.nn as nn
+
+
+def _is_patch_tokens(visual: torch.Tensor) -> bool:
+    # Cached DINO tokens are (b, t, patches, dim). Pixels are (b, t, 3, H, W).
+    return visual.ndim == 4 or (visual.ndim == 5 and visual.shape[2] != 3)
 from torchvision import transforms
 from einops import rearrange, repeat
 import numpy as np
@@ -558,8 +563,8 @@ class VWorldModel(nn.Module):
         """
         visual = obs['visual']
         b = visual.shape[0]
-        # Precomputed DINOv2 tokens are (b, t, patches, dim). Pixels are (b, t, 3, H, W).
-        if visual.ndim == 5 and visual.shape[2] != 3:
+        # Tokens are (b, t, patches, dim). Pixels are (b, t, 3, H, W).
+        if _is_patch_tokens(visual):
             visual_embs = visual
         else:
             visual = rearrange(visual, "b t ... -> (b t) ...")

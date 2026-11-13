@@ -2,6 +2,7 @@ import torch
 
 from datasets.epoch_sampler import rank_batch_indices
 from datasets.traj_dset import TrajSlicerDataset
+from models.visual_world_model import _is_patch_tokens
 
 
 class _Frames:
@@ -40,6 +41,13 @@ def test_slicer_reads_only_the_window():
     assert obs["visual"].shape == (2, 3, 4, 4)
     assert act.shape == (2, 3)
     assert state.shape[0] == 2
+
+
+def test_cached_dino_tokens_are_not_images():
+    tokens = torch.zeros(2, 4, 196, 384)
+    pixels = torch.zeros(2, 4, 3, 224, 224)
+    assert _is_patch_tokens(tokens)
+    assert not _is_patch_tokens(pixels)
 
 
 def test_rank_shards_cover_one_shared_draw():
