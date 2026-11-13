@@ -234,7 +234,7 @@ def _commit_volume_until(stop: threading.Event) -> None:
 
 @app.function(
     image=image,
-    gpu="L4:4",
+    gpu="T4:4",
     timeout=24 * 60 * 60,
     cpu=(8, 16),
     memory=(32768, 65536),
