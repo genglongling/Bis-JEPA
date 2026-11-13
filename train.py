@@ -236,7 +236,9 @@ class Trainer:
         return ckpt_path, model_name, model_epoch
 
     def load_ckpt(self, filename="model_latest.pth"):
-        ckpt = torch.load(filename)
+        # Saved tensors live on cuda:0. Load on CPU so each rank can move them
+        # onto its own GPU; otherwise attention masks stay on cuda:0.
+        ckpt = torch.load(filename, map_location="cpu")
         for k, v in ckpt.items():
             self.__dict__[k] = v
         not_in_ckpt = set(self._keys_to_save) - set(ckpt.keys())
