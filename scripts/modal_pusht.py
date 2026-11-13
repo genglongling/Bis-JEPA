@@ -232,29 +232,12 @@ def _commit_volume_until(stop: threading.Event) -> None:
             print(f"volume commit failed: {exc}", flush=True)
 
 
-# Ranked fallback: take the first type with free capacity instead of queueing for A100:4.
-GPU_FALLBACK = [
-    "L4:4",
-    "A10G:4",
-    "L40S:4",
-    "H100:4",
-    "A100:4",
-    "L4",
-    "A10G",
-    "L40S",
-    "H100",
-    "A100",
-    "T4",
-]
-
-
 @app.function(
     image=image,
-    gpu=GPU_FALLBACK,
+    gpu="T4:8",
     timeout=24 * 60 * 60,
-    # A low request lets a free single-GPU worker start immediately.
-    cpu=(4, 16),
-    memory=(16384, 65536),
+    cpu=(8, 32),
+    memory=(32768, 131072),
     volumes={"/vol": volume},
 )
 def train_and_eval(n_rollout: int = 1000) -> dict:
