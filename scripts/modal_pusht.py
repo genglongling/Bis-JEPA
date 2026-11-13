@@ -234,10 +234,10 @@ def _commit_volume_until(stop: threading.Event) -> None:
 
 @app.function(
     image=image,
-    gpu="L4:4",
+    gpu="L4:2",
     timeout=24 * 60 * 60,
-    cpu=(8, 16),
-    memory=(32768, 65536),
+    cpu=(4, 16),
+    memory=(16384, 65536),
     volumes={"/vol": volume},
 )
 def train_and_eval(n_rollout: int = 1000) -> dict:
