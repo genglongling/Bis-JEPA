@@ -234,10 +234,11 @@ def _commit_volume_until(stop: threading.Event) -> None:
 
 @app.function(
     image=image,
-    gpu="L4:2",
+    # Cheapest first. A single GPU is what Modal has been able to place immediately.
+    gpu=["T4", "L4", "A10", "L40S", "A100", "H100"],
     timeout=24 * 60 * 60,
-    cpu=(4, 16),
-    memory=(16384, 65536),
+    cpu=(2, 8),
+    memory=(8192, 32768),
     volumes={"/vol": volume},
 )
 def train_and_eval(n_rollout: int = 1000) -> dict:
