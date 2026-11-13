@@ -18,7 +18,7 @@ from pathlib import Path
 
 import modal
 
-APP_NAME = "dinobisim-pusht"
+APP_NAME = os.environ.get("DINOBISIM_APP_NAME", "dinobisim-pusht")
 VOLUME_NAME = "dinobisim-pusht"
 REPO_REMOTE = "/root/bisjepa"
 DATA_URL = "https://osf.io/download/k2d8w/?view_only=a56a296ce3b24cceaf408383a175ce28"
@@ -265,6 +265,25 @@ def train_and_eval_t4x4(n_rollout: int = 1000) -> dict:
     )
 
 
+@app.function(
+    image=image,
+    gpu="L4:4",
+    timeout=24 * 60 * 60,
+    cpu=(8, 16),
+    memory=(32768, 65536),
+    volumes={"/vol": volume},
+)
+def train_and_eval_l4x4(n_rollout: int = 1000) -> dict:
+    """Same n=1000 run on four L4s, stored apart from the other jobs."""
+    tag = _tag(n_rollout)
+    return _launch_train(
+        n_rollout,
+        run_tag=f"{tag}-l4x4",
+        seed_tag=tag,
+        spawn_larger=False,
+    )
+
+
 def _launch_train(
     n_rollout: int,
     run_tag: str | None = None,
@@ -452,6 +471,9 @@ def _train_eval_once(
 
 @app.local_entrypoint()
 def main(variant: str = "default") -> None:
-    fn = train_and_eval_t4x4 if variant == "t4x4" else train_and_eval
+    fn = {
+        "t4x4": train_and_eval_t4x4,
+        "l4x4": train_and_eval_l4x4,
+    }.get(variant, train_and_eval)
     summary = fn.remote(1000)
     print(json.dumps(summary, indent=2))
