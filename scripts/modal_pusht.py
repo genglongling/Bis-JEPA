@@ -303,6 +303,25 @@ def train_and_eval_a100x4(n_rollout: int = 1000) -> dict:
     )
 
 
+@app.function(
+    image=image,
+    gpu="A10:4",
+    timeout=24 * 60 * 60,
+    cpu=(8, 16),
+    memory=(32768, 65536),
+    volumes={"/vol": volume},
+)
+def train_and_eval_a10x4(n_rollout: int = 1000) -> dict:
+    """Same 384-d n=1000 run on four A10s, stored apart from the other jobs."""
+    tag = _tag(n_rollout)
+    return _launch_train(
+        n_rollout,
+        run_tag=f"{tag}-d384-a10x4",
+        seed_tag=None,
+        spawn_larger=False,
+    )
+
+
 def _launch_train(
     n_rollout: int,
     run_tag: str | None = None,
@@ -495,6 +514,7 @@ def main(variant: str = "default") -> None:
         "t4x4": train_and_eval_t4x4,
         "l4x4": train_and_eval_l4x4,
         "a100x4": train_and_eval_a100x4,
+        "a10x4": train_and_eval_a10x4,
     }.get(variant, train_and_eval)
     summary = fn.remote(1000)
     print(json.dumps(summary, indent=2))
