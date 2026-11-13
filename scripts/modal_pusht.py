@@ -124,6 +124,67 @@ def _ensure_dataset(data_root: Path) -> None:
         raise FileNotFoundError(marker)
 
 
+def _eval_six(ckpt_base: Path, run_name: str) -> None:
+    """Run the six visual conditions four at a time, one GPU each."""
+    rates = {}
+    plan_dirs = {}
+    failed = []
+    conds = list(CONDITIONS)
+    for start in range(0, len(conds), 4):
+        chunk = conds[start : start + 4]
+        procs = []
+        for gpu, cond in enumerate(chunk):
+            out_json = ckpt_base / f"sixcond_{cond}.json"
+            plan_dir = ckpt_base / "plan_outputs" / cond
+            env = os.environ.copy()
+            env["CUDA_VISIBLE_DEVICES"] = str(gpu)
+            env["PYTHONPATH"] = REPO_REMOTE + os.pathsep + env.get("PYTHONPATH", "")
+            cmd = [
+                "python",
+                "eval_pusht_six_conditions.py",
+                "--model-name",
+                run_name,
+                "--ckpt-base-path",
+                str(ckpt_base),
+                "--config-name",
+                "plan_pusht_local",
+                "--no-wandb",
+                "--conditions",
+                cond,
+                "--output-json",
+                str(out_json),
+                "--extra",
+                "n_evals=50",
+                "goal_H=5",
+                "goal_source=dset",
+                "planner.max_iter=5",
+                f"hydra.run.dir={plan_dir}",
+            ]
+            print("Running:", " ".join(cmd), f"CUDA_VISIBLE_DEVICES={gpu}", flush=True)
+            procs.append((cond, out_json, subprocess.Popen(cmd, cwd=REPO_REMOTE, env=env)))
+        for cond, out_json, proc in procs:
+            rc = proc.wait()
+            if rc != 0 or not out_json.is_file():
+                failed.append(cond)
+                rates[cond] = None
+                continue
+            payload = json.loads(out_json.read_text())
+            rates[cond] = payload.get("rates", {}).get(cond)
+            plan_dirs[cond] = (payload.get("plan_result_dirs") or {}).get(cond)
+            if rates[cond] is None:
+                failed.append(cond)
+    merged = {
+        "model_name": run_name,
+        "ckpt_base_path": str(ckpt_base),
+        "conditions": list(CONDITIONS),
+        "rates": {cond: rates.get(cond) for cond in CONDITIONS},
+        "plan_result_dirs": plan_dirs,
+        "failed": failed,
+    }
+    (ckpt_base / "sixcond.json").write_text(json.dumps(merged, indent=2))
+    print(json.dumps(merged["rates"], indent=2), flush=True)
+
+
 def _tag(n_rollout: int) -> str:
     return "nfull" if n_rollout < 0 else f"n{n_rollout}"
 
@@ -138,10 +199,10 @@ def _commit_volume_until(stop: threading.Event) -> None:
 
 @app.function(
     image=image,
-    gpu="A100",
+    gpu="A100:4",
     timeout=24 * 60 * 60,
-    cpu=8,
-    memory=32768,
+    cpu=16,
+    memory=65536,
     volumes={"/vol": volume},
 )
 def train_and_eval(n_rollout: int = 1000) -> dict:
@@ -188,9 +249,27 @@ def train_and_eval(n_rollout: int = 1000) -> dict:
 def _train_eval_once(
     ckpt_base: Path, run_dir: Path, run_name: str, n_override: str, n_rollout: int
 ) -> dict:
+    # One download. Four accelerate processes would otherwise race on the hub cache.
     _run(
         [
             "python",
+            "-c",
+            "import torch; torch.hub.load('facebookresearch/dinov2:main', 'dinov2_vits14', trust_repo=True)",
+        ],
+        cwd=REPO_REMOTE,
+    )
+    _run(
+        [
+            "accelerate",
+            "launch",
+            "--num_processes",
+            "4",
+            "--num_machines",
+            "1",
+            "--mixed_precision",
+            "no",
+            "--dynamo_backend",
+            "no",
             "train.py",
             "--config-name",
             "train_local",
@@ -198,37 +277,17 @@ def _train_eval_once(
             f"hydra.run.dir={run_dir}",
             f"hydra.sweep.dir={run_dir}",
             f"env.dataset.n_rollout={n_override}",
-            "env.num_workers=4",
+            "env.num_workers=2",
             f"wandb_display_name={run_name}",
             "training.seed=0",
+            "training.batch_size=20",
             "training.log_image_mosaics_to_wandb=false",
         ],
         cwd=REPO_REMOTE,
     )
     volume.commit()
-
+    _eval_six(ckpt_base, run_name)
     out_json = ckpt_base / "sixcond.json"
-    _run(
-        [
-            "python",
-            "eval_pusht_six_conditions.py",
-            "--model-name",
-            run_name,
-            "--ckpt-base-path",
-            str(ckpt_base),
-            "--config-name",
-            "plan_pusht_local",
-            "--no-wandb",
-            "--output-json",
-            str(out_json),
-            "--extra",
-            "n_evals=50",
-            "goal_H=5",
-            "goal_source=dset",
-            "planner.max_iter=5",
-        ],
-        cwd=REPO_REMOTE,
-    )
     plan_src = Path(REPO_REMOTE) / "plan_outputs"
     plan_dest = ckpt_base / "plan_outputs"
     if plan_src.is_dir():
