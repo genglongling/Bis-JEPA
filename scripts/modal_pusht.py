@@ -271,6 +271,19 @@ def train_and_eval(n_rollout: int = 1000) -> dict:
     return summary
 
 
+def _epochs_left(run_dir: Path, target: int = 50) -> int:
+    ckpt_dir = run_dir / "checkpoints"
+    done = 0
+    if ckpt_dir.is_dir():
+        for path in ckpt_dir.glob("model_*.pth"):
+            suffix = path.stem.removeprefix("model_")
+            if suffix.isdigit():
+                done = max(done, int(suffix))
+    left = max(target - done, 0)
+    print(f"Checkpoint epoch {done}; {left} epochs left to reach {target}", flush=True)
+    return left
+
+
 def _train_eval_once(
     ckpt_base: Path, run_dir: Path, run_name: str, n_override: str, n_rollout: int
 ) -> dict:
@@ -301,7 +314,11 @@ def _train_eval_once(
     if run_dir.exists() and not marker.exists():
         shutil.rmtree(run_dir)
     marker.write_text(json.dumps({"steps_per_epoch": 1000, "val_steps_per_epoch": 200, "precomputed_dino": True}))
-    _run(
+    epochs_left = _epochs_left(run_dir)
+    if epochs_left == 0:
+        print("Training already reached 50 epochs. Evaluating the saved checkpoint.", flush=True)
+    else:
+        _run(
         [
             "accelerate",
             "launch",
@@ -325,6 +342,7 @@ def _train_eval_once(
             f"wandb_display_name={run_name}",
             "training.seed=0",
             "training.batch_size=20",
+            f"training.epochs={epochs_left}",
             "training.steps_per_epoch=1000",
             "training.val_steps_per_epoch=200",
             "training.log_image_mosaics_to_wandb=false",
