@@ -375,29 +375,25 @@ class BisimModel(nn.Module):
 
     def compute_transition_distance(self, next_z_bisim, next_z_bisim2, squared=True):
         """
-        Per-sequence transition distance between predicted or encoded next latents.
+        Per-timestep transition distance. Planning scores every patch, so this is the
+        mean over patches of a per-patch squared L2, not the L2 of the mean patch.
         next_z_bisim:  (b, t, p, d)
         next_z_bisim2: (b, t, p, d)
-        Returns: (b,) — if squared=True, mean_t ||·||_2^2 (paper Δ_bisim); else RMS over time.
+        Returns: (b, t). squared=False is the per-step RMS over patches.
         """
-        b, t, p, d = next_z_bisim.shape
-        z1_pooled = next_z_bisim.mean(dim=2)   # (b, t, d)
-        z2_pooled = next_z_bisim2.mean(dim=2)  # (b, t, d)
-
-        diff = z1_pooled - z2_pooled  # (b, t, d)
-        squared_diff = diff.pow(2).sum(dim=-1)  # (b, t)
+        per_patch = (next_z_bisim - next_z_bisim2).pow(2).sum(dim=-1)  # (b, t, p)
+        per_step = per_patch.mean(dim=-1)  # (b, t)
         if squared:
-            return squared_diff.mean(dim=-1)  # (b,)
-        distances = squared_diff.mean(dim=-1)
-        return torch.sqrt(distances + 1e-8)
+            return per_step
+        return torch.sqrt(per_step + 1e-8)
 
     def _latent_pair_distance(self, z_bisim, z_bisim2, metric="l2"):
-        """Pairwise distance between pooled bisim latents; returns (b, t)."""
-        z1_pooled = z_bisim.mean(dim=2)
-        z2_pooled = z_bisim2.mean(dim=2)
+        """Per-timestep mean over patches of the pairwise latent distance. Returns (b, t)."""
         if metric == "smooth_l1":
-            return F.smooth_l1_loss(z1_pooled, z2_pooled, reduction="none").sum(dim=-1)
-        return (z1_pooled - z2_pooled).pow(2).sum(dim=-1)
+            per_patch = F.smooth_l1_loss(z_bisim, z_bisim2, reduction="none").sum(dim=-1)
+            return per_patch.mean(dim=-1)
+        per_patch = (z_bisim - z_bisim2).pow(2).sum(dim=-1)
+        return per_patch.mean(dim=-1)
 
     def compute_covariance_regularization(self, z_bisim, next_z_bisim,
                                           var_target: float = 1.0,
@@ -628,6 +624,7 @@ class BisimModel(nn.Module):
         Calculate bisimulation loss.
 
         Paper (JEPA–bisim): L_bisim = E[(||w_t - w'_t||^2 - gamma ||T(w_t,a_t) - T(w'_t,a'_t)||^2)^2].
+        Distances are the mean over patches of per-patch squared L2, one value per history step.
         When pred_next_z_* are set, transition target uses dynamics T_phi; otherwise encoded next states.
         Optional reward term when train_w_reward_loss; PCA/VICReg/SigReg extensions add var/cov terms.
         """
@@ -655,7 +652,9 @@ class BisimModel(nn.Module):
                 f"transition_dist stats: mean={transition_dist.mean().item():.6f}, std={transition_dist.std().item():.6f}, min={transition_dist.min().item():.6f}, max={transition_dist.max().item():.6f}")
             transition_dist = torch.ones_like(transition_dist)
 
-        transition_dist = transition_dist.unsqueeze(1).expand(-1, r_dist.shape[1])  # (b, t)
+        # Per-step distances are already (b, t). A legacy (b,) result is copied across time.
+        if transition_dist.ndim == 1:
+            transition_dist = transition_dist.unsqueeze(1).expand(-1, r_dist.shape[1])
 
         reg_lc = str(regularization).lower()
         use_vicreg = reg_lc == "vicreg"
