@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import threading
 import urllib.request
@@ -284,6 +285,24 @@ def _train_eval_once(
     )
     _run(
         [
+            "python",
+            "scripts/precompute_dino_features.py",
+            "--data-path",
+            "/vol/data/pusht_noise",
+            f"--n-rollout={n_rollout}",
+            "--batch-size",
+            "64",
+        ],
+        cwd=REPO_REMOTE,
+    )
+    volume.commit()
+    # The exhaustive run wrote a partial checkpoint into this directory. Do not resume it.
+    marker = ckpt_base / "fast_protocol.json"
+    if run_dir.exists() and not marker.exists():
+        shutil.rmtree(run_dir)
+    marker.write_text(json.dumps({"steps_per_epoch": 1000, "val_steps_per_epoch": 200, "precomputed_dino": True}))
+    _run(
+        [
             "accelerate",
             "launch",
             "--num_processes",
@@ -301,11 +320,15 @@ def _train_eval_once(
             f"hydra.run.dir={run_dir}",
             f"hydra.sweep.dir={run_dir}",
             f"env.dataset.n_rollout={n_override}",
-            "env.num_workers=2",
+            "env.dataset.use_precomputed_dino=true",
+            "env.num_workers=4",
             f"wandb_display_name={run_name}",
             "training.seed=0",
             "training.batch_size=20",
+            "training.steps_per_epoch=1000",
+            "training.val_steps_per_epoch=200",
             "training.log_image_mosaics_to_wandb=false",
+            "training.log_ground_truth_mosaic=false",
         ],
         cwd=REPO_REMOTE,
     )

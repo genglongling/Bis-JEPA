@@ -21,6 +21,7 @@ from hydra.core.hydra_config import HydraConfig
 from datetime import timedelta
 from concurrent.futures import ThreadPoolExecutor
 from metrics.image_metrics import eval_images
+from datasets.epoch_sampler import rank_batch_indices
 from utils import slice_trajdict_with_t, cfg_to_dict, seed, sample_tensors
 from models.bisim import BisimModel  # Import the bisimulation model
 
@@ -608,11 +609,43 @@ class Trainer:
 
         return logs
 
+    def _fixed_step_loader(self, split, n_steps):
+        dataset = self.datasets[split]
+        n_proc = self.accelerator.num_processes
+        rank = self.accelerator.process_index
+        per_gpu = self.cfg.gpu_batch_size
+        split_seed = int(self.cfg.training.seed) + int(self.epoch) * 10007
+        if split != "train":
+            split_seed += 17
+        indices = rank_batch_indices(
+            len(dataset), int(n_steps), per_gpu, n_proc, rank, split_seed
+        )
+        subset = torch.utils.data.Subset(dataset, indices.tolist())
+        return torch.utils.data.DataLoader(
+            subset,
+            batch_size=per_gpu,
+            shuffle=False,
+            num_workers=self.cfg.env.num_workers,
+            pin_memory=True,
+        )
+
+    def _move_batch(self, obs, act, state):
+        obs = {k: v.to(self.device, non_blocking=True) for k, v in obs.items()}
+        act = act.to(self.device, non_blocking=True)
+        state = state.to(self.device, non_blocking=True)
+        return obs, act, state
+
     def train(self):
-        for i, data in enumerate(
-                tqdm(self.dataloaders["train"], desc=f"Epoch {self.epoch} Train")
-        ):
+        n_steps = self.cfg.training.get("steps_per_epoch")
+        loader = (
+            self._fixed_step_loader("train", n_steps)
+            if n_steps
+            else self.dataloaders["train"]
+        )
+        for i, data in enumerate(tqdm(loader, desc=f"Epoch {self.epoch} Train")):
             obs, act, state = data
+            if n_steps:
+                obs, act, state = self._move_batch(obs, act, state)
             plot = i == 0  # only plot from the first batch
             self.model.train()
             z_out, visual_out, visual_reconstructed, loss, loss_components = self.model(
@@ -735,10 +768,16 @@ class Trainer:
                 self.logs_update(val_rollout_logs)
 
         self.accelerator.wait_for_everyone()
-        for i, data in enumerate(
-                tqdm(self.dataloaders["valid"], desc=f"Epoch {self.epoch} Valid")
-        ):
+        n_steps = self.cfg.training.get("val_steps_per_epoch")
+        loader = (
+            self._fixed_step_loader("valid", n_steps)
+            if n_steps
+            else self.dataloaders["valid"]
+        )
+        for i, data in enumerate(tqdm(loader, desc=f"Epoch {self.epoch} Valid")):
             obs, act, state = data
+            if n_steps:
+                obs, act, state = self._move_batch(obs, act, state)
             plot = i == 0
             self.model.eval()
             z_out, visual_out, visual_reconstructed, loss, loss_components = self.model(
@@ -1058,6 +1097,8 @@ class Trainer:
         if not self.accelerator.is_main_process:
             return
         if not self.cfg.training.get("log_ground_truth_mosaic", True):
+            return
+        if obs_visual.ndim != 5 or obs_visual.shape[2] != 3:
             return
         n = min(
             int(self.num_reconstruct_samples),

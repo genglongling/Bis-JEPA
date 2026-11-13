@@ -558,10 +558,14 @@ class VWorldModel(nn.Module):
         """
         visual = obs['visual']
         b = visual.shape[0]
-        visual = rearrange(visual, "b t ... -> (b t) ...")
-        visual = self.encoder_transform(visual)
-        visual_embs = self.encoder.forward(visual)
-        visual_embs = rearrange(visual_embs, "(b t) p d -> b t p d", b=b)
+        # Precomputed DINOv2 tokens are (b, t, patches, dim). Pixels are (b, t, 3, H, W).
+        if visual.ndim == 5 and visual.shape[2] != 3:
+            visual_embs = visual
+        else:
+            visual = rearrange(visual, "b t ... -> (b t) ...")
+            visual = self.encoder_transform(visual)
+            visual_embs = self.encoder.forward(visual)
+            visual_embs = rearrange(visual_embs, "(b t) p d -> b t p d", b=b)
 
         proprio = obs['proprio']
         proprio_emb = self.encode_proprio(proprio)

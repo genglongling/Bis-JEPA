@@ -1,4 +1,6 @@
 import abc
+from pathlib import Path
+
 import torch
 import numpy as np
 from torch.utils.data import Dataset
@@ -57,10 +59,12 @@ class TrajSlicerDataset(TrajDataset):
         num_frames: int,
         frameskip: int = 1,
         process_actions: str = "concat",
+        feature_dir: Optional[str] = None,
     ):
         self.dataset = dataset
         self.num_frames = num_frames
         self.frameskip = frameskip
+        self.feature_dir = None if feature_dir is None else Path(feature_dir)
         self.slices = []
         for i in range(len(self.dataset)): 
             T = self.dataset.get_seq_length(i)
@@ -89,13 +93,29 @@ class TrajSlicerDataset(TrajDataset):
     def __len__(self):
         return len(self.slices)
 
+    def _episode_features(self, episode_idx: int) -> torch.Tensor:
+        if getattr(self, "_feat_i", None) != episode_idx:
+            path = self.feature_dir / f"episode_{episode_idx:03d}.pt"
+            self._feat = torch.load(path, map_location="cpu")
+            self._feat_i = episode_idx
+        return self._feat
+
     def __getitem__(self, idx):
         i, start, end = self.slices[idx]
-        obs, act, state, _ = self.dataset[i]
+        # Read this window only. dataset[i] would decode the whole episode.
+        frame_ix = list(range(start, end))
+        if self.feature_dir is not None:
+            obs, act, state, _ = self.dataset.get_frames(i, frame_ix, load_visual=False)
+        else:
+            obs, act, state, _ = self.dataset.get_frames(i, frame_ix)
         for k, v in obs.items():
-            obs[k] = v[start:end:self.frameskip]
-        state = state[start:end:self.frameskip]
-        act = act[start:end]
+            if v is None:
+                continue
+            obs[k] = v[:: self.frameskip]
+        if self.feature_dir is not None:
+            feat = self._episode_features(i)
+            obs["visual"] = feat[start:end:self.frameskip].float()
+        state = state[:: self.frameskip]
         act = rearrange(act, "(n f) d -> n (f d)", n=self.num_frames)  # concat actions
         return tuple([obs, act, state])
 

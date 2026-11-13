@@ -33,6 +33,9 @@ training:
   seed: 0
   epochs: 50
   batch_size: 20
+  # null walks every temporal window. 1000/200 is the PushT fast schedule.
+  steps_per_epoch: null
+  val_steps_per_epoch: null
   save_every_x_epoch: 1
   reconstruct_every_x_batch: 500
   num_reconstruct_samples: 6
