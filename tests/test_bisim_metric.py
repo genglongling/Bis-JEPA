@@ -125,6 +125,20 @@ def test_predictor_target_ignores_encoded_next_state_and_stops_grad():
     assert model.predictor.scale.grad is None
 
 
+def test_predictor_visual_chunk_matches_full_forward():
+    torch.manual_seed(0)
+    model = _world()
+    visual = torch.randn(2, 2, 4, 4)
+    _, _, z_src, _ = _batch(model, visual)
+    z = z_src.repeat(3, 1, 1, 1)
+    chunked = model._predictor_visual(z)
+    with torch.no_grad():
+        pred = model.predict(z)
+        full, _ = model.separate_emb(pred)
+    assert torch.allclose(chunked, full["visual"])
+    assert not chunked.requires_grad
+
+
 def test_memory_pairs_still_use_predictor_target():
     torch.manual_seed(0)
     model = _world()

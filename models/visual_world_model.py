@@ -190,11 +190,18 @@ class VWorldModel(nn.Module):
         )
 
     def _predictor_visual(self, z):
-        """Dynamics visual output. No gradient: the bisim target must not train T."""
+        """Dynamics visual output. No gradient: the bisim target must not train T.
+
+        Memory pairs double the batch. Slice that no-grad forward so it fits beside
+        the training graph on a 16 GB T4.
+        """
+        pieces = []
         with torch.no_grad():
-            pred = self.predict(z)
-            visual, _ = self.separate_emb(pred)
-            return visual["visual"].detach()
+            for start in range(0, z.shape[0], 4):
+                pred = self.predict(z[start : start + 4])
+                visual, _ = self.separate_emb(pred)
+                pieces.append(visual["visual"].detach())
+        return torch.cat(pieces, dim=0)
 
     def _predictor_bisim_next_pair(self, z_src, z_pred, perm):
         z_obs_pred, _ = self.separate_emb(z_pred)
