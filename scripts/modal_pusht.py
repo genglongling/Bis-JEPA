@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import threading
+import urllib.request
 from pathlib import Path
 
 import modal
@@ -91,6 +92,29 @@ def _improved(rates: dict) -> bool:
     return _mean(rates) > _mean(PREVIOUS_N1000)
 
 
+def _download(url: str, dest: Path) -> None:
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    last_error = None
+    for attempt in range(1, 6):
+        try:
+            print(f"Downloading {url} (attempt {attempt})", flush=True)
+            req = urllib.request.Request(url, headers={"User-Agent": "dinobisim-pusht"})
+            with urllib.request.urlopen(req, timeout=120) as resp, tmp.open("wb") as out:
+                while True:
+                    chunk = resp.read(8 * 1024 * 1024)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+            tmp.replace(dest)
+            print(f"Downloaded {dest.stat().st_size} bytes", flush=True)
+            return
+        except Exception as exc:
+            last_error = exc
+            print(f"Download failed: {exc}", flush=True)
+            tmp.unlink(missing_ok=True)
+    raise RuntimeError(f"Could not download {url}") from last_error
+
+
 def _run(cmd: list[str], cwd: str) -> None:
     print("Running:", " ".join(cmd), flush=True)
     subprocess.run(cmd, cwd=cwd, check=True)
@@ -104,10 +128,7 @@ def _ensure_dataset(data_root: Path) -> None:
     data_root.mkdir(parents=True, exist_ok=True)
     zip_path = data_root / "pusht_noise.zip"
     if not zip_path.exists() or zip_path.stat().st_size < 1_000_000_000:
-        _run(
-            ["curl", "-L", "--retry", "5", "-o", str(zip_path), DATA_URL],
-            cwd=str(data_root),
-        )
+        _download(DATA_URL, zip_path)
     _run(["unzip", "-q", "-o", str(zip_path), "-d", str(data_root / "unzipped")], cwd=str(data_root))
     unzipped = data_root / "unzipped"
     candidates = list(unzipped.rglob("states.pth"))
