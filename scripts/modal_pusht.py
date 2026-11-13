@@ -49,7 +49,7 @@ image = (
         "wandb==0.17.0",
         "einops==0.4.1",
         "tqdm",
-        "numpy",
+        "numpy==1.26.4",
         "pillow",
         "gym==0.23.1",
         "pymunk==6.8.0",
@@ -62,7 +62,10 @@ image = (
         "imageio",
         "huggingface_hub",
     )
-    .run_commands("pip install 'decord==0.6.0' || pip install 'eva-decord==0.6.1'")
+    .run_commands(
+        "pip install 'decord==0.6.0' || pip install 'eva-decord==0.6.1'",
+        "pip install 'numpy==1.26.4'",
+    )
     .add_local_dir(
         ".",
         remote_path=REPO_REMOTE,
