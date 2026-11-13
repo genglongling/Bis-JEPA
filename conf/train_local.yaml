@@ -60,7 +60,7 @@ proprio_emb_dim: 10
 num_proprio_repeat: 1
 
 has_bisim: True
-bisim_latent_dim: 64
+bisim_latent_dim: 384
 bisim_hidden_dim: 256
 bisim_pos_encoding: grid_mlp
 bisim_pos_hidden_dim: 256

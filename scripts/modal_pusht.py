@@ -259,8 +259,8 @@ def train_and_eval_t4x4(n_rollout: int = 1000) -> dict:
     tag = _tag(n_rollout)
     return _launch_train(
         n_rollout,
-        run_tag=f"{tag}-t4x4",
-        seed_tag=tag,
+        run_tag=f"{tag}-d384-t4x4",
+        seed_tag=None,
         spawn_larger=False,
     )
 
@@ -278,8 +278,8 @@ def train_and_eval_l4x4(n_rollout: int = 1000) -> dict:
     tag = _tag(n_rollout)
     return _launch_train(
         n_rollout,
-        run_tag=f"{tag}-l4x4",
-        seed_tag=tag,
+        run_tag=f"{tag}-d384-l4x4",
+        seed_tag=None,
         spawn_larger=False,
     )
 
@@ -297,8 +297,8 @@ def train_and_eval_a100x4(n_rollout: int = 1000) -> dict:
     tag = _tag(n_rollout)
     return _launch_train(
         n_rollout,
-        run_tag=f"{tag}-a100x4",
-        seed_tag=tag,
+        run_tag=f"{tag}-d384-a100x4",
+        seed_tag=None,
         spawn_larger=False,
     )
 
@@ -454,6 +454,7 @@ def _train_eval_once(
             "env.dataset.use_precomputed_dino=true",
             "env.num_workers=2",
             f"wandb_display_name={run_name}",
+            "bisim_latent_dim=384",
             "training.seed=0",
             f"training.batch_size={5 * n_gpu}",
             f"training.epochs={epochs_left}",
