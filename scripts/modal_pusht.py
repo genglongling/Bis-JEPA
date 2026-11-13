@@ -33,7 +33,7 @@ PREVIOUS_N1000 = {
 CONDITIONS = ("NC", "SC", "C", "LC", "LCG", "D")
 
 image = (
-    modal.Image.debian_slim(python_version="3.10")
+    modal.Image.debian_slim(python_version="3.11")
     .apt_install("git", "ffmpeg", "libgl1", "libglib2.0-0", "unzip", "libsdl2-2.0-0")
     .pip_install(
         "torch==2.4.1",
@@ -41,7 +41,7 @@ image = (
         extra_index_url="https://download.pytorch.org/whl/cu121",
     )
     .pip_install(
-        "hydra-core==1.2.0",
+        "hydra-core==1.3.2",
         "antlr4-python3-runtime==4.9.3",
         "omegaconf==2.3.0",
         "accelerate==0.26.1",
