@@ -1,12 +1,10 @@
 """Train and evaluate the PushT DINO-Bisim fix on Modal.
 
-n=1000 runs first. The default GPU job spawns n=5000 and the full set only
-when the six-condition mean success rate is above the previous DINO-Bisim
-n=1000 result (0.36, 0.36, 0.36, 0.32, 0.32, 0.30). One four-A100
-container trains n=1000, n=5000, and the full set at the same time. Each job
-uses all four GPUs and keeps its own checkpoint directory.
+The four-A100 entry trains one rollout cap on all four GPUs, then runs the
+six-condition eval. n=1000 is the default. n=5000 and the full set are
+separate apps and are not started with it.
 
-  modal run scripts/modal_pusht.py
+  modal run scripts/modal_pusht.py --variant a100x4
 """
 from __future__ import annotations
 
@@ -403,10 +401,16 @@ def train_and_eval_l4x4(n_rollout: int = 1000) -> dict:
     volumes={"/vol": volume},
 )
 def train_and_eval_a100x4(n_rollout: int = 1000) -> dict:
-    """n=1000, n=5000, and the full set together on one four-A100 machine."""
-    if n_rollout == 1000:
-        return _launch_a100_shared()
-    return _launch_a100x4(n_rollout)
+    """Train this rollout cap on four A100s, then evaluate the six conditions."""
+    job_log = _JobLog(_job_log_path(n_rollout), _tag(n_rollout))
+    token = _JOB_LOG.set(job_log)
+    try:
+        _emit(f"log file: {job_log.path}")
+        _emit(f"Solo {_tag(n_rollout)} train and eval on 4 A100s")
+        return _launch_a100x4(n_rollout)
+    finally:
+        _JOB_LOG.reset(token)
+        job_log.close()
 
 
 def _launch_a100x4(
