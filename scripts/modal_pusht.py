@@ -246,8 +246,15 @@ def _gpu_count() -> int:
     return max(count, 1)
 
 
-def _eval_six(ckpt_base: Path, run_name: str) -> None:
+def _eval_six(
+    ckpt_base: Path,
+    run_name: str,
+    model_epoch: str | None = None,
+    result_dir: Path | None = None,
+) -> None:
     """Run the six visual conditions, one per GPU, in as many waves as needed."""
+    dest = result_dir or ckpt_base
+    dest.mkdir(parents=True, exist_ok=True)
     rates = {}
     plan_dirs = {}
     failed = []
@@ -257,8 +264,8 @@ def _eval_six(ckpt_base: Path, run_name: str) -> None:
         chunk = conds[start : start + width]
         procs = []
         for gpu, cond in enumerate(chunk):
-            out_json = ckpt_base / f"sixcond_{cond}.json"
-            plan_dir = ckpt_base / "plan_outputs" / cond
+            out_json = dest / f"sixcond_{cond}.json"
+            plan_dir = dest / "plan_outputs" / cond
             env = os.environ.copy()
             env["CUDA_VISIBLE_DEVICES"] = str(gpu)
             env["PYTHONPATH"] = REPO_REMOTE + os.pathsep + env.get("PYTHONPATH", "")
@@ -283,6 +290,8 @@ def _eval_six(ckpt_base: Path, run_name: str) -> None:
                 "planner.max_iter=5",
                 f"hydra.run.dir={plan_dir}",
             ]
+            if model_epoch is not None:
+                cmd.append(f"model_epoch={model_epoch}")
             _emit("Running: " + " ".join(cmd) + f" CUDA_VISIBLE_DEVICES={gpu}")
             proc, drain = _popen_logged(cmd, REPO_REMOTE, env)
             procs.append((cond, out_json, proc, drain))
@@ -307,7 +316,7 @@ def _eval_six(ckpt_base: Path, run_name: str) -> None:
         "plan_result_dirs": plan_dirs,
         "failed": failed,
     }
-    (ckpt_base / "sixcond.json").write_text(json.dumps(merged, indent=2))
+    (dest / "sixcond.json").write_text(json.dumps(merged, indent=2))
     _emit(json.dumps(merged["rates"], indent=2))
 
 
@@ -738,16 +747,97 @@ def _train_eval_once(
     return summary
 
 
+def _newest_saved_epoch(ckpt_dir: Path) -> int:
+    done = 0
+    if ckpt_dir.is_dir():
+        for path in ckpt_dir.glob("model_*.pth"):
+            suffix = path.stem.removeprefix("model_")
+            if suffix.isdigit():
+                done = max(done, int(suffix))
+    return done
+
+
+@app.function(
+    image=image,
+    gpu="A100:4",
+    timeout=24 * 60 * 60,
+    cpu=16,
+    memory=65536,
+    volumes={"/vol": volume},
+)
+def eval_n1000_epoch(model_epoch: int = 15) -> dict:
+    """Evaluate one saved n=1000 checkpoint on its own four-A100 app."""
+    os.environ["DATASET_DIR"] = "/vol/data"
+    os.environ["WANDB_MODE"] = "offline"
+    os.environ["WANDB_DIR"] = "/vol/wandb/n1000-d384-a100x4-eval"
+    os.environ["TORCH_HOME"] = "/vol/torch"
+    os.environ["SDL_VIDEODRIVER"] = "dummy"
+    os.environ["SDL_AUDIODRIVER"] = "dummy"
+    os.environ["HYDRA_FULL_ERROR"] = "1"
+    Path(os.environ["WANDB_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path("/vol/torch").mkdir(parents=True, exist_ok=True)
+    _ensure_dataset(Path("/vol/data"))
+    _run(
+        [
+            "python",
+            "-c",
+            "import torch; torch.hub.load('facebookresearch/dinov2:main', 'dinov2_vits14', trust_repo=True)",
+        ],
+        cwd=REPO_REMOTE,
+    )
+    ckpt_base = Path("/vol/runs/n1000-d384-a100x4")
+    run_name = "dinobisim_n1000-d384-a100x4"
+    ckpt_dir = ckpt_base / "outputs" / run_name / "checkpoints"
+    saved = _newest_saved_epoch(ckpt_dir)
+    epoch = model_epoch if (ckpt_dir / f"model_{model_epoch}.pth").is_file() else saved
+    if epoch <= 0:
+        raise FileNotFoundError(f"No numbered checkpoint in {ckpt_dir}")
+    if epoch != model_epoch:
+        print(
+            f"model_{model_epoch}.pth is not saved yet (newest is epoch {saved}). Evaluating epoch {epoch}.",
+            flush=True,
+        )
+    result_dir = ckpt_base / f"eval_epoch{epoch}"
+    job_log = _JobLog(result_dir / "eval.log", f"eval{epoch}")
+    token = _JOB_LOG.set(job_log)
+    try:
+        _emit(f"Evaluating model_{epoch}.pth from {ckpt_dir}")
+        _emit(f"log file: {job_log.path}")
+        _eval_six(ckpt_base, run_name, model_epoch=str(epoch), result_dir=result_dir)
+        rates = json.loads((result_dir / "sixcond.json").read_text())["rates"]
+        summary = {
+            "tag": run_name,
+            "checkpoint_epoch": epoch,
+            "requested_epoch": model_epoch,
+            "n_rollout": 1000,
+            "rates": rates,
+            "mean": None if any(rates.get(k) is None for k in CONDITIONS) else _mean(rates),
+            "previous_n1000_mean": _mean(PREVIOUS_N1000),
+            "improved_vs_previous_n1000": _improved(rates),
+            "result_dir": str(result_dir),
+        }
+        (result_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+        _emit(json.dumps(summary, indent=2))
+        return summary
+    finally:
+        _JOB_LOG.reset(token)
+        job_log.close()
+        volume.commit()
+
+
 @app.local_entrypoint()
 def main(variant: str = "default") -> None:
-    fn = {
-        "t4x4": train_and_eval_t4x4,
-        "l4x4": train_and_eval_l4x4,
-        "a100x4": train_and_eval_a100x4,
-        "a100x4-n5000": train_and_eval_a100x4,
-        "a100x4-nfull": train_and_eval_a100x4,
-        "a10x4": train_and_eval_a10x4,
-    }.get(variant, train_and_eval)
-    n_rollout = {"a100x4-n5000": 5000, "a100x4-nfull": -1}.get(variant, 1000)
-    summary = fn.remote(n_rollout)
+    if variant == "a100x4-eval":
+        summary = eval_n1000_epoch.remote(15)
+    else:
+        fn = {
+            "t4x4": train_and_eval_t4x4,
+            "l4x4": train_and_eval_l4x4,
+            "a100x4": train_and_eval_a100x4,
+            "a100x4-n5000": train_and_eval_a100x4,
+            "a100x4-nfull": train_and_eval_a100x4,
+            "a10x4": train_and_eval_a10x4,
+        }.get(variant, train_and_eval)
+        n_rollout = {"a100x4-n5000": 5000, "a100x4-nfull": -1}.get(variant, 1000)
+        summary = fn.remote(n_rollout)
     print(json.dumps(summary, indent=2))
