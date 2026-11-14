@@ -10,10 +10,12 @@ uses all four GPUs and keeps its own checkpoint directory.
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import urllib.request
 from pathlib import Path
@@ -121,9 +123,93 @@ def _download(url: str, dest: Path) -> None:
     raise RuntimeError(f"Could not download {url}") from last_error
 
 
+class _JobLog:
+    """Append one job's output to its own file and echo it with a tag."""
+
+    def __init__(self, path: Path, tag: str) -> None:
+        self.path = path
+        self.tag = tag
+        self._lock = threading.Lock()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._fh = path.open("a", encoding="utf-8", buffering=1)
+
+    def write(self, text: str) -> None:
+        text = text.rstrip("\n")
+        with self._lock:
+            self._fh.write(text + "\n")
+            self._fh.flush()
+            sys.stdout.write(f"[{self.tag}] {text}\n")
+            sys.stdout.flush()
+
+    def close(self) -> None:
+        with self._lock:
+            self._fh.close()
+
+
+_JOB_LOG: contextvars.ContextVar[_JobLog | None] = contextvars.ContextVar("job_log", default=None)
+
+
+def _job_log_path(n_rollout: int) -> Path:
+    tag = _tag(n_rollout)
+    return Path("/vol/runs") / f"{tag}-d384-a100x4" / f"{tag}.log"
+
+
+def _emit(text: str) -> None:
+    log = _JOB_LOG.get()
+    if log is None:
+        print(text, flush=True)
+    else:
+        log.write(text)
+
+
 def _run(cmd: list[str], cwd: str, env: dict[str, str] | None = None) -> None:
-    print("Running:", " ".join(cmd), flush=True)
-    subprocess.run(cmd, cwd=cwd, check=True, env=env)
+    log = _JOB_LOG.get()
+    if log is None:
+        print("Running:", " ".join(cmd), flush=True)
+        subprocess.run(cmd, cwd=cwd, check=True, env=env)
+        return
+    log.write("Running: " + " ".join(cmd))
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        log.write(line.rstrip("\n"))
+    rc = proc.wait()
+    if rc != 0:
+        raise subprocess.CalledProcessError(rc, cmd)
+
+
+def _popen_logged(
+    cmd: list[str], cwd: str, env: dict[str, str]
+) -> tuple[subprocess.Popen[str], threading.Thread | None]:
+    log = _JOB_LOG.get()
+    if log is None:
+        return subprocess.Popen(cmd, cwd=cwd, env=env), None
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    def _drain() -> None:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            log.write(line.rstrip("\n"))
+
+    drain = threading.Thread(target=_drain, daemon=True)
+    drain.start()
+    return proc, drain
 
 
 def _ensure_dataset(data_root: Path) -> None:
@@ -156,7 +242,7 @@ def _gpu_count() -> int:
 
     count = int(torch.cuda.device_count())
     names = [torch.cuda.get_device_name(i) for i in range(count)]
-    print(f"Using {count} GPU(s): {names}", flush=True)
+    _emit(f"Using {count} GPU(s): {names}")
     return max(count, 1)
 
 
@@ -197,10 +283,13 @@ def _eval_six(ckpt_base: Path, run_name: str) -> None:
                 "planner.max_iter=5",
                 f"hydra.run.dir={plan_dir}",
             ]
-            print("Running:", " ".join(cmd), f"CUDA_VISIBLE_DEVICES={gpu}", flush=True)
-            procs.append((cond, out_json, subprocess.Popen(cmd, cwd=REPO_REMOTE, env=env)))
-        for cond, out_json, proc in procs:
+            _emit("Running: " + " ".join(cmd) + f" CUDA_VISIBLE_DEVICES={gpu}")
+            proc, drain = _popen_logged(cmd, REPO_REMOTE, env)
+            procs.append((cond, out_json, proc, drain))
+        for cond, out_json, proc, drain in procs:
             rc = proc.wait()
+            if drain is not None:
+                drain.join()
             if rc != 0 or not out_json.is_file():
                 failed.append(cond)
                 rates[cond] = None
@@ -219,7 +308,7 @@ def _eval_six(ckpt_base: Path, run_name: str) -> None:
         "failed": failed,
     }
     (ckpt_base / "sixcond.json").write_text(json.dumps(merged, indent=2))
-    print(json.dumps(merged["rates"], indent=2), flush=True)
+    _emit(json.dumps(merged["rates"], indent=2))
 
 
 def _eval_already_done(out_json: Path) -> bool:
@@ -367,11 +456,20 @@ def _launch_a100_shared() -> dict:
             "One 4-GPU machine. n=1000, n=5000, and n=full each train on all 4 GPUs.",
             flush=True,
         )
+        for n_rollout in (1000, 5000, -1):
+            path = _job_log_path(n_rollout)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write("Waiting for the shared feature cache.\n")
+            print(f"{_tag(n_rollout)} log: {path}", flush=True)
         _prepare_features(-1)
         print("Feature cache ready. Starting the three jobs on the same 4 GPUs.", flush=True)
 
         def _one(n_rollout: int, port: int) -> None:
+            job_log = _JobLog(_job_log_path(n_rollout), _tag(n_rollout))
+            token = _JOB_LOG.set(job_log)
             try:
+                _emit(f"log file: {job_log.path}")
                 summary = _launch_a100x4(
                     n_rollout,
                     main_process_port=port,
@@ -379,9 +477,13 @@ def _launch_a100_shared() -> dict:
                 )
             except BaseException as exc:
                 errors[n_rollout] = exc
-                print(f"{_tag(n_rollout)} failed: {exc}", flush=True)
+                _emit(f"{_tag(n_rollout)} failed: {exc}")
                 return
-            summaries[n_rollout] = summary
+            else:
+                summaries[n_rollout] = summary
+            finally:
+                _JOB_LOG.reset(token)
+                job_log.close()
 
         threads = [
             threading.Thread(target=_one, args=(1000, 29501), name="n1000"),
@@ -486,7 +588,7 @@ def _epochs_left(run_dir: Path, target: int = 50) -> int:
             if suffix.isdigit():
                 done = max(done, int(suffix))
     left = max(target - done, 0)
-    print(f"Checkpoint epoch {done}; {left} epochs left to reach {target}", flush=True)
+    _emit(f"Checkpoint epoch {done}; {left} epochs left to reach {target}")
     return left
 
 
@@ -564,7 +666,7 @@ def _train_eval_once(
         _seed_checkpoints(run_dir, seed_run_dir)
     epochs_left = _epochs_left(run_dir)
     if epochs_left == 0:
-        print("Training already reached 50 epochs. Evaluating the saved checkpoint.", flush=True)
+        _emit("Training already reached 50 epochs. Evaluating the saved checkpoint.")
     else:
         n_gpu = _gpu_count()
         launch = [
@@ -606,13 +708,13 @@ def _train_eval_once(
             wandb_dir.mkdir(parents=True, exist_ok=True)
             child_env = os.environ.copy()
             child_env["WANDB_DIR"] = str(wandb_dir)
-        print(f"{run_name} training on all {n_gpu} GPUs", flush=True)
+        _emit(f"{run_name} training on all {n_gpu} GPUs")
         _run(launch, cwd=REPO_REMOTE, env=child_env)
     volume.commit()
     out_json = ckpt_base / "sixcond.json"
     with _EVAL_LOCK:
         if _eval_already_done(out_json):
-            print(f"Six-condition eval already complete at {out_json}. Skipping.", flush=True)
+            _emit(f"Six-condition eval already complete at {out_json}. Skipping.")
         else:
             _eval_six(ckpt_base, run_name)
             plan_src = Path(REPO_REMOTE) / "plan_outputs"
@@ -632,7 +734,7 @@ def _train_eval_once(
         "improved_vs_previous_n1000": _improved(rates),
     }
     (ckpt_base / "summary.json").write_text(json.dumps(summary, indent=2))
-    print(json.dumps(summary, indent=2), flush=True)
+    _emit(json.dumps(summary, indent=2))
     return summary
 
 
