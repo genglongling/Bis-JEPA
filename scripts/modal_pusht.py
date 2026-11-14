@@ -1,8 +1,9 @@
 """Train and evaluate the PushT DINO-Bisim fix on Modal.
 
-n=1000 runs first. n=5000 and the full set are spawned only when the
-six-condition mean success rate is above the previous DINO-Bisim n=1000
-result (0.36, 0.36, 0.36, 0.32, 0.32, 0.30).
+n=1000 runs first. The default GPU job spawns n=5000 and the full set only
+when the six-condition mean success rate is above the previous DINO-Bisim
+n=1000 result (0.36, 0.36, 0.36, 0.32, 0.32, 0.30). The four-A100 job trains
+and evaluates n=1000, then n=5000, then the full set in that same container.
 
   modal run scripts/modal_pusht.py
 """
@@ -220,6 +221,16 @@ def _eval_six(ckpt_base: Path, run_name: str) -> None:
     print(json.dumps(merged["rates"], indent=2), flush=True)
 
 
+def _eval_already_done(out_json: Path) -> bool:
+    if not out_json.is_file():
+        return False
+    try:
+        rates = json.loads(out_json.read_text()).get("rates") or {}
+    except json.JSONDecodeError:
+        return False
+    return all(rates.get(cond) is not None for cond in CONDITIONS)
+
+
 def _tag(n_rollout: int) -> str:
     return "nfull" if n_rollout < 0 else f"n{n_rollout}"
 
@@ -293,7 +304,16 @@ def train_and_eval_l4x4(n_rollout: int = 1000) -> dict:
     volumes={"/vol": volume},
 )
 def train_and_eval_a100x4(n_rollout: int = 1000) -> dict:
-    """Same n=1000 run on four A100s, stored apart from the other jobs."""
+    """384-d run on four A100s. n=1000 then n=5000 and the full set, same container."""
+    summary = _launch_a100x4(n_rollout)
+    if n_rollout == 1000:
+        print("n=1000 finished. Continuing in this container with n=5000 and n=full.", flush=True)
+        for larger in (5000, -1):
+            summary = _launch_a100x4(larger)
+    return summary
+
+
+def _launch_a100x4(n_rollout: int) -> dict:
     tag = _tag(n_rollout)
     return _launch_train(
         n_rollout,
@@ -367,7 +387,7 @@ def _launch_train(
         print("n=1000 improved. Spawning n=5000 and n=full.", flush=True)
         train_and_eval.spawn(5000)
         train_and_eval.spawn(-1)
-    elif n_rollout == 1000 and not summary["improved_vs_previous_n1000"]:
+    elif spawn_larger and n_rollout == 1000 and not summary["improved_vs_previous_n1000"]:
         print("n=1000 did not improve on the previous DINO-Bisim mean. Stopping.", flush=True)
     return summary
 
@@ -485,15 +505,18 @@ def _train_eval_once(
         cwd=REPO_REMOTE,
     )
     volume.commit()
-    _eval_six(ckpt_base, run_name)
     out_json = ckpt_base / "sixcond.json"
-    plan_src = Path(REPO_REMOTE) / "plan_outputs"
-    plan_dest = ckpt_base / "plan_outputs"
-    if plan_src.is_dir():
-        subprocess.run(
-            ["cp", "-a", str(plan_src), str(plan_dest)],
-            check=False,
-        )
+    if _eval_already_done(out_json):
+        print(f"Six-condition eval already complete at {out_json}. Skipping.", flush=True)
+    else:
+        _eval_six(ckpt_base, run_name)
+        plan_src = Path(REPO_REMOTE) / "plan_outputs"
+        plan_dest = ckpt_base / "plan_outputs"
+        if plan_src.is_dir():
+            subprocess.run(
+                ["cp", "-a", str(plan_src), str(plan_dest)],
+                check=False,
+            )
     rates = json.loads(out_json.read_text())["rates"]
     summary = {
         "tag": run_name,
