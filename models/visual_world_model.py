@@ -1,5 +1,10 @@
 import torch
 import torch.nn as nn
+
+
+def _is_patch_tokens(visual: torch.Tensor) -> bool:
+    # Cached DINO tokens are (b, t, patches, dim). Pixels are (b, t, 3, H, W).
+    return visual.ndim == 4 or (visual.ndim == 5 and visual.shape[2] != 3)
 from torchvision import transforms
 from einops import rearrange, repeat
 import numpy as np
@@ -105,6 +110,11 @@ class VWorldModel(nn.Module):
                                      torch.zeros(bisim_memory_buffer_size, num_hist, num_patches, self.bisim_patch_dim))
                 self.register_buffer('bisim_memory_actions',
                                      torch.zeros(bisim_memory_buffer_size, num_hist, action_emb_dim))
+                proprio_emb_dim = getattr(proprio_encoder, "emb_dim", proprio_dim)
+                self.register_buffer(
+                    "bisim_memory_proprio",
+                    torch.zeros(bisim_memory_buffer_size, num_hist, proprio_emb_dim),
+                )
                 self.register_buffer('bisim_memory_rewards', torch.zeros(bisim_memory_buffer_size, num_hist, 1))
                 self.register_buffer('bisim_memory_ptr', torch.zeros(1, dtype=torch.long))
                 self.register_buffer('bisim_memory_full', torch.zeros(1, dtype=torch.bool))
@@ -169,8 +179,9 @@ class VWorldModel(nn.Module):
         self.bisim_latent_metric = bisim_latent_metric
 
     def _use_predictor_bisim_target(self, z_src, z_pred, memory_cross_batch=False):
-        if memory_cross_batch:
-            return False
+        # memory_cross_batch is accepted so older call sites keep working. The predictor
+        # target stays on for memory pairs; those pairs replay T(w, a) from stored latents.
+        del memory_cross_batch
         return (
             self.bisim_transition_target == "predictor"
             and z_src is not None
@@ -178,14 +189,45 @@ class VWorldModel(nn.Module):
             and self.predictor is not None
         )
 
+    def _predictor_visual(self, z):
+        """Dynamics visual output. No gradient: the bisim target must not train T.
+
+        Memory pairs double the batch. Slice that no-grad forward so it fits beside
+        the training graph on a 16 GB T4.
+        """
+        pieces = []
+        with torch.no_grad():
+            for start in range(0, z.shape[0], 4):
+                pred = self.predict(z[start : start + 4])
+                visual, _ = self.separate_emb(pred)
+                pieces.append(visual["visual"].detach())
+        return torch.cat(pieces, dim=0)
+
     def _predictor_bisim_next_pair(self, z_src, z_pred, perm):
         z_obs_pred, _ = self.separate_emb(z_pred)
         pred_next = z_obs_pred["visual"]
-        z_pred_pair = self.predict(z_src[perm])
-        pred_next2, _ = self.separate_emb(z_pred_pair)
-        return pred_next, pred_next2["visual"]
+        pred_next2 = self._predictor_visual(z_src[perm])
+        return pred_next, pred_next2
+
+    def _predictor_pair_with_memory(self, z_src, z_pred, memory_z, perm):
+        """T(w, a) for the current batch plus stored windows, and T for the permuted pair."""
+        current_visual, _ = self.separate_emb(z_pred)
+        pred_next = torch.cat(
+            [current_visual["visual"].detach(), self._predictor_visual(memory_z)],
+            dim=0,
+        )
+        z_combined = torch.cat([z_src, memory_z], dim=0)
+        pred_next2 = self._predictor_visual(z_combined[perm])
+        return pred_next, pred_next2
+
+    def _memory_predictor_input(self, states, proprio, actions):
+        return self._build_z_from_dct({"visual": states, "proprio": proprio}, actions)
 
     def _bisim_loss_kwargs(self, pred_next=None, pred_next2=None):
+        if pred_next is not None:
+            pred_next = pred_next.detach()
+        if pred_next2 is not None:
+            pred_next2 = pred_next2.detach()
         return {
             "pred_next_z_bisim": pred_next,
             "pred_next_z_bisim2": pred_next2,
@@ -243,7 +285,7 @@ class VWorldModel(nn.Module):
 
         return z_bisim
 
-    def update_memory_buffer(self, z_bisim, next_z_bisim, action_emb, reward):
+    def update_memory_buffer(self, z_bisim, next_z_bisim, action_emb, reward, proprio=None):
         """
         Update the memory buffer with new samples
         """
@@ -260,6 +302,8 @@ class VWorldModel(nn.Module):
             self.bisim_memory_states[ptr] = z_bisim[i].detach()
             self.bisim_memory_next_states[ptr] = next_z_bisim[i].detach()
             self.bisim_memory_actions[ptr] = action_emb[i].detach()
+            if proprio is not None:
+                self.bisim_memory_proprio[ptr] = proprio[i].detach()
             self.bisim_memory_rewards[ptr] = reward[i].detach()
 
             # update pointer
@@ -291,12 +335,29 @@ class VWorldModel(nn.Module):
             'states': self.bisim_memory_states[indices],
             'next_states': self.bisim_memory_next_states[indices],
             'actions': self.bisim_memory_actions[indices],
+            'proprio': self.bisim_memory_proprio[indices],
             'rewards': self.bisim_memory_rewards[indices]
         }
 
-    def calc_bisim_loss(self, z_bisim, next_z_bisim, action_emb, epoch, z_src=None, z_pred=None, reward=None, discount=0.99):
+    def _invoke_bisim_loss(self, *args, **extra):
+        model = self.bisim_model.module if hasattr(self.bisim_model, "module") else self.bisim_model
+        return model.calc_bisim_loss(*args, **extra)
+
+    def calc_bisim_loss(
+        self,
+        z_bisim,
+        next_z_bisim,
+        action_emb,
+        epoch,
+        z_src=None,
+        z_pred=None,
+        reward=None,
+        discount=0.99,
+        proprio=None,
+    ):
         """
-        Calculate bisimulation loss. When bisim_transition_target=predictor, Δ uses T_phi(w,a).
+        Calculate bisimulation loss. When bisim_transition_target=predictor, Δ uses T_phi(w,a),
+        including pairs drawn from the memory buffer.
         """
         if not self.has_bisim:
             return torch.tensor(0.0, device=z_bisim.device)
@@ -331,6 +392,8 @@ class VWorldModel(nn.Module):
                 memory_states = memory_data['states'].to(z_bisim.device)
                 memory_next_states = memory_data['next_states'].to(z_bisim.device)
                 memory_rewards = memory_data['rewards'].to(z_bisim.device)
+                memory_actions = memory_data['actions'].to(z_bisim.device)
+                memory_proprio = memory_data['proprio'].to(z_bisim.device)
 
                 z_bisim_combined = torch.cat([z_bisim, memory_states], dim=0)
                 next_z_bisim_combined = torch.cat([next_z_bisim, memory_next_states], dim=0)
@@ -341,31 +404,26 @@ class VWorldModel(nn.Module):
                 next_z_bisim2 = next_z_bisim_combined[perm]
                 reward2 = reward_combined[perm]
                 extra = self._bisim_loss_kwargs()
+                if self._use_predictor_bisim_target(z_src, z_pred) and proprio is not None:
+                    memory_z = self._memory_predictor_input(
+                        memory_states, memory_proprio, memory_actions
+                    )
+                    pred_next, pred_next2 = self._predictor_pair_with_memory(
+                        z_src, z_pred, memory_z, perm
+                    )
+                    extra = self._bisim_loss_kwargs(pred_next, pred_next2)
 
-                if hasattr(self.bisim_model, "module"):
-                    (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
-                     log_vicreg_cov, log_vicreg_total) = self.bisim_model.module.calc_bisim_loss(
-                        z_bisim_combined, z_bisim2, reward_combined, reward2,
-                        next_z_bisim_combined, next_z_bisim2, epoch, discount, self.train_w_reward_loss,
-                        self.var_loss_coef,
-                        self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
-                        self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
-                        self.vicreg_cov_coef, self.vicreg_std_min,
-                        self.sigreg_sketch_dim,
-                        **extra,
-                    )
-                else:
-                    (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
-                     log_vicreg_cov, log_vicreg_total) = self.bisim_model.calc_bisim_loss(
-                        z_bisim_combined, z_bisim2, reward_combined, reward2,
-                        next_z_bisim_combined, next_z_bisim2, epoch, discount, self.train_w_reward_loss,
-                        self.var_loss_coef,
-                        self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
-                        self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
-                        self.vicreg_cov_coef, self.vicreg_std_min,
-                        self.sigreg_sketch_dim,
-                        **extra,
-                    )
+                (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
+                 log_vicreg_cov, log_vicreg_total) = self._invoke_bisim_loss(
+                    z_bisim_combined, z_bisim2, reward_combined, reward2,
+                    next_z_bisim_combined, next_z_bisim2, epoch, discount, self.train_w_reward_loss,
+                    self.var_loss_coef,
+                    self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
+                    self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
+                    self.vicreg_cov_coef, self.vicreg_std_min,
+                    self.sigreg_sketch_dim,
+                    **extra,
+                )
 
                 bisim_loss = bisim_loss[:batch_size]
                 z_dist = z_dist[:batch_size]
@@ -388,28 +446,16 @@ class VWorldModel(nn.Module):
                     pred_next, pred_next2 = self._predictor_bisim_next_pair(z_src, z_pred, perm)
                     extra = self._bisim_loss_kwargs(pred_next, pred_next2)
 
-                if hasattr(self.bisim_model, "module"):
-                    (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
-                     log_vicreg_cov, log_vicreg_total) = self.bisim_model.module.calc_bisim_loss(
-                        z_bisim, z_bisim2, reward, reward2,
-                        next_z_bisim, next_z_bisim2, epoch, discount, self.train_w_reward_loss, self.var_loss_coef,
-                        self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
-                        self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
-                        self.vicreg_cov_coef, self.vicreg_std_min,
-                        self.sigreg_sketch_dim,
-                        **extra,
-                    )
-                else:
-                    (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
-                     log_vicreg_cov, log_vicreg_total) = self.bisim_model.calc_bisim_loss(
-                        z_bisim, z_bisim2, reward, reward2,
-                        next_z_bisim, next_z_bisim2, epoch, discount, self.train_w_reward_loss, self.var_loss_coef,
-                        self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
-                        self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
-                        self.vicreg_cov_coef, self.vicreg_std_min,
-                        self.sigreg_sketch_dim,
-                        **extra,
-                    )
+                (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
+                 log_vicreg_cov, log_vicreg_total) = self._invoke_bisim_loss(
+                    z_bisim, z_bisim2, reward, reward2,
+                    next_z_bisim, next_z_bisim2, epoch, discount, self.train_w_reward_loss, self.var_loss_coef,
+                    self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
+                    self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
+                    self.vicreg_cov_coef, self.vicreg_std_min,
+                    self.sigreg_sketch_dim,
+                    **extra,
+                )
         else:
             # memory buffer disabled or eval mode
             perm = torch.randperm(batch_size, device=z_bisim.device)
@@ -421,31 +467,19 @@ class VWorldModel(nn.Module):
                 pred_next, pred_next2 = self._predictor_bisim_next_pair(z_src, z_pred, perm)
                 extra = self._bisim_loss_kwargs(pred_next, pred_next2)
 
-            if hasattr(self.bisim_model, "module"):
-                (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
-                 log_vicreg_cov, log_vicreg_total) = self.bisim_model.module.calc_bisim_loss(
-                    z_bisim, z_bisim2, reward, reward2,
-                    next_z_bisim, next_z_bisim2, epoch, discount, self.train_w_reward_loss, self.var_loss_coef,
-                    self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
-                    self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
-                    self.vicreg_cov_coef, self.vicreg_std_min,
-                    self.sigreg_sketch_dim,
-                    **extra,
-                )
-            else:
-                (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
-                 log_vicreg_cov, log_vicreg_total) = self.bisim_model.calc_bisim_loss(
-                    z_bisim, z_bisim2, reward, reward2,
-                    next_z_bisim, next_z_bisim2, epoch, discount, self.train_w_reward_loss, self.var_loss_coef,
-                    self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
-                    self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
-                    self.vicreg_cov_coef, self.vicreg_std_min,
-                    self.sigreg_sketch_dim,
-                    **extra,
-                )
+            (bisim_loss, z_dist, r_dist, transition_dist, var_loss, cov_reg, log_vicreg_inv, log_vicreg_var,
+             log_vicreg_cov, log_vicreg_total) = self._invoke_bisim_loss(
+                z_bisim, z_bisim2, reward, reward2,
+                next_z_bisim, next_z_bisim2, epoch, discount, self.train_w_reward_loss, self.var_loss_coef,
+                self.PCA1_loss_target, self.VC_target, self.num_pcs, self.PCAloss_epoch,
+                self.regularization, self.vicreg_inv_coef, self.vicreg_var_coef,
+                self.vicreg_cov_coef, self.vicreg_std_min,
+                self.sigreg_sketch_dim,
+                **extra,
+            )
 
         if self.training:
-            self.update_memory_buffer(z_bisim, next_z_bisim, action_emb, reward)
+            self.update_memory_buffer(z_bisim, next_z_bisim, action_emb, reward, proprio=proprio)
 
         return (
             bisim_loss,
@@ -536,10 +570,14 @@ class VWorldModel(nn.Module):
         """
         visual = obs['visual']
         b = visual.shape[0]
-        visual = rearrange(visual, "b t ... -> (b t) ...")
-        visual = self.encoder_transform(visual)
-        visual_embs = self.encoder.forward(visual)
-        visual_embs = rearrange(visual_embs, "(b t) p d -> b t p d", b=b)
+        # Tokens are (b, t, patches, dim). Pixels are (b, t, 3, H, W).
+        if _is_patch_tokens(visual):
+            visual_embs = visual
+        else:
+            visual = rearrange(visual, "b t ... -> (b t) ...")
+            visual = self.encoder_transform(visual)
+            visual_embs = self.encoder.forward(visual)
+            visual_embs = rearrange(visual_embs, "(b t) p d -> b t p d", b=b)
 
         proprio = obs['proprio']
         proprio_emb = self.encode_proprio(proprio)
@@ -672,6 +710,7 @@ class VWorldModel(nn.Module):
                     epoch=epoch,
                     z_src=z_src,
                     z_pred=z_pred,
+                    proprio=z_obs_src["proprio"],
                 )
                 bisim_loss = bisim_loss.mean()
                 loss = loss + self.bisim_coef * bisim_loss

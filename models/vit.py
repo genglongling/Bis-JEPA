@@ -55,7 +55,7 @@ class Attention(nn.Module):
             nn.Linear(inner_dim, dim),
             nn.Dropout(dropout)
         ) if project_out else nn.Identity()
-        self.bias = generate_mask_matrix(NUM_PATCHES, NUM_FRAMES).to('cuda')
+        self.register_buffer("bias", generate_mask_matrix(NUM_PATCHES, NUM_FRAMES), persistent=False)
 
     def forward(self, x):
         (
@@ -69,7 +69,9 @@ class Attention(nn.Module):
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv)
 
         dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
-        # apply causal mask
+        # Checkpoints saved this mask as a plain tensor, so it does not follow .to().
+        if self.bias.device != dots.device:
+            self.bias = self.bias.to(dots.device)
         dots = dots.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))
 
         attn = self.attend(dots)

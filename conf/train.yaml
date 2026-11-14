@@ -36,6 +36,9 @@ training:
   seed: 0
   epochs: 50  # Table 2
   batch_size: 20  # Table 2
+  # null walks every temporal window. 1000/200 is the PushT fast schedule.
+  steps_per_epoch: null
+  val_steps_per_epoch: null
   save_every_x_epoch: 1
   reconstruct_every_x_batch: 500
   num_reconstruct_samples: 6
@@ -47,7 +50,7 @@ training:
   decoder_lr: 3e-4  # Table 2
   predictor_lr: 1e-5  # Table 2
   action_encoder_lr: 1e-4  # Table 2 (proprio + action encoders)
-  bisim_lr: 5e-7  # Table 2
+  bisim_lr: 1e-4  # from-scratch bisim MLP; Table 2 used 5e-7
 
 img_size: 224 # 224 for point_maze and wall
 frameskip: 5
@@ -65,7 +68,7 @@ num_proprio_repeat: 1
 
 # bisimulation model settings (Table 3 + Figure 6)
 has_bisim: True
-bisim_latent_dim: 32  # latent / patch dim (Table 3)
+bisim_latent_dim: 384  # patch dim; Table 3 / previous JEPA-Bisim used 32
 bisim_hidden_dim: 256  # MLP hidden width (Figure 6; not in Table 3)
 bisim_pos_encoding: grid_mlp  # grid_mlp (Figure 6), learned (legacy ckpts), or sincos
 bisim_pos_hidden_dim: 256  # Positional Embedding Encoder hidden width

@@ -105,19 +105,21 @@ class PushTDataset(TrajDataset):
             result.append(self.actions[i, :T, :])
         return torch.cat(result, dim=0)
 
-    def get_frames(self, idx, frames):
-        vid_dir = self.data_path / "obses"
-        reader = VideoReader(str(vid_dir / f"episode_{idx:03d}.mp4"), num_threads=1)
+    def get_frames(self, idx, frames, load_visual=True):
         act = self.actions[idx, frames]
         state = self.states[idx, frames]
         proprio = self.proprios[idx, frames]
         shape = self.shapes[idx]
 
-        image = reader.get_batch(frames)  # THWC
-        image = image / 255.0
-        image = rearrange(image, "T H W C -> T C H W")
-        if self.transform:
-            image = self.transform(image)
+        image = None
+        if load_visual:
+            vid_dir = self.data_path / "obses"
+            reader = VideoReader(str(vid_dir / f"episode_{idx:03d}.mp4"), num_threads=1)
+            image = reader.get_batch(frames)  # THWC
+            image = image / 255.0
+            image = rearrange(image, "T H W C -> T C H W")
+            if self.transform:
+                image = self.transform(image)
         obs = {"visual": image, "proprio": proprio}
         return obs, act, state, {'shape': shape}
 
@@ -144,6 +146,7 @@ def load_pusht_slice_train_val(
     num_pred=0,
     frameskip=0,
     with_velocity=True,
+    use_precomputed_dino=False,
 ):
     train_dset = PushTDataset(
         n_rollout=n_rollout,
@@ -161,8 +164,10 @@ def load_pusht_slice_train_val(
     )
 
     num_frames = num_hist + num_pred
-    train_slices = TrajSlicerDataset(train_dset, num_frames, frameskip)
-    val_slices = TrajSlicerDataset(val_dset, num_frames, frameskip)
+    train_features = str(Path(data_path) / "train" / "dino_features") if use_precomputed_dino else None
+    val_features = str(Path(data_path) / "val" / "dino_features") if use_precomputed_dino else None
+    train_slices = TrajSlicerDataset(train_dset, num_frames, frameskip, feature_dir=train_features)
+    val_slices = TrajSlicerDataset(val_dset, num_frames, frameskip, feature_dir=val_features)
 
     datasets = {}
     datasets["train"] = train_slices
