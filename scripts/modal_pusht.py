@@ -2,9 +2,9 @@
 
 n=1000 runs first. The default GPU job spawns n=5000 and the full set only
 when the six-condition mean success rate is above the previous DINO-Bisim
-n=1000 result (0.36, 0.36, 0.36, 0.32, 0.32, 0.30). The four-A100 variants
-train n=1000, n=5000, and the full set at the same time, each in its own
-checkpoint directory.
+n=1000 result (0.36, 0.36, 0.36, 0.32, 0.32, 0.30). One four-A100
+container trains n=1000, n=5000, and the full set at the same time. Each job
+uses all four GPUs and keeps its own checkpoint directory.
 
   modal run scripts/modal_pusht.py
 """
@@ -121,9 +121,9 @@ def _download(url: str, dest: Path) -> None:
     raise RuntimeError(f"Could not download {url}") from last_error
 
 
-def _run(cmd: list[str], cwd: str) -> None:
+def _run(cmd: list[str], cwd: str, env: dict[str, str] | None = None) -> None:
     print("Running:", " ".join(cmd), flush=True)
-    subprocess.run(cmd, cwd=cwd, check=True)
+    subprocess.run(cmd, cwd=cwd, check=True, env=env)
 
 
 def _ensure_dataset(data_root: Path) -> None:
@@ -305,18 +305,100 @@ def train_and_eval_l4x4(n_rollout: int = 1000) -> dict:
     volumes={"/vol": volume},
 )
 def train_and_eval_a100x4(n_rollout: int = 1000) -> dict:
-    """One 384-d rollout cap on four A100s. Launch n=1000, n=5000, and full together."""
+    """n=1000, n=5000, and the full set together on one four-A100 machine."""
+    if n_rollout == 1000:
+        return _launch_a100_shared()
     return _launch_a100x4(n_rollout)
 
 
-def _launch_a100x4(n_rollout: int) -> dict:
+def _launch_a100x4(
+    n_rollout: int,
+    main_process_port: int | None = None,
+    prepare_features: bool = True,
+) -> dict:
     tag = _tag(n_rollout)
-    return _launch_train(
+    run_tag = f"{tag}-d384-a100x4"
+    if prepare_features:
+        return _launch_train(
+            n_rollout,
+            run_tag=run_tag,
+            seed_tag=None,
+            spawn_larger=False,
+            main_process_port=main_process_port,
+        )
+    run_name = f"dinobisim_{run_tag}"
+    ckpt_base = Path("/vol/runs") / run_tag
+    ckpt_base.mkdir(parents=True, exist_ok=True)
+    run_dir = ckpt_base / "outputs" / run_name
+    n_override = "null" if n_rollout < 0 else str(n_rollout)
+    return _train_eval_once(
+        ckpt_base,
+        run_dir,
+        run_name,
+        n_override,
         n_rollout,
-        run_tag=f"{tag}-d384-a100x4",
-        seed_tag=None,
-        spawn_larger=False,
+        prepare_features=False,
+        main_process_port=main_process_port,
+        wandb_dir=Path("/vol/wandb") / run_tag,
     )
+
+
+def _launch_a100_shared() -> dict:
+    """Run every rollout cap at once. Each training uses the same four GPUs."""
+    os.environ["DATASET_DIR"] = "/vol/data"
+    os.environ["WANDB_MODE"] = "offline"
+    os.environ["WANDB_DIR"] = "/vol/wandb"
+    os.environ["TORCH_HOME"] = "/vol/torch"
+    os.environ["SDL_VIDEODRIVER"] = "dummy"
+    os.environ["SDL_AUDIODRIVER"] = "dummy"
+    os.environ["HYDRA_FULL_ERROR"] = "1"
+    Path("/vol/wandb").mkdir(parents=True, exist_ok=True)
+    Path("/vol/torch").mkdir(parents=True, exist_ok=True)
+    _ensure_dataset(Path("/vol/data"))
+    volume.commit()
+
+    stop_commit = threading.Event()
+    committer = threading.Thread(target=_commit_volume_until, args=(stop_commit,), daemon=True)
+    committer.start()
+    summaries: dict[int, dict] = {}
+    errors: dict[int, BaseException] = {}
+    try:
+        print(
+            "One 4-GPU machine. n=1000, n=5000, and n=full each train on all 4 GPUs.",
+            flush=True,
+        )
+        _prepare_features(-1)
+        print("Feature cache ready. Starting the three jobs on the same 4 GPUs.", flush=True)
+
+        def _one(n_rollout: int, port: int) -> None:
+            try:
+                summary = _launch_a100x4(
+                    n_rollout,
+                    main_process_port=port,
+                    prepare_features=False,
+                )
+            except BaseException as exc:
+                errors[n_rollout] = exc
+                print(f"{_tag(n_rollout)} failed: {exc}", flush=True)
+                return
+            summaries[n_rollout] = summary
+
+        threads = [
+            threading.Thread(target=_one, args=(1000, 29501), name="n1000"),
+            threading.Thread(target=_one, args=(5000, 29511), name="n5000"),
+            threading.Thread(target=_one, args=(-1, 29521), name="nfull"),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        if errors:
+            failed = ", ".join(_tag(n) for n in errors)
+            raise RuntimeError(f"Jobs failed: {failed}") from next(iter(errors.values()))
+        return {"jobs": {_tag(n): summary for n, summary in summaries.items()}}
+    finally:
+        stop_commit.set()
+        volume.commit()
 
 
 @app.function(
@@ -343,6 +425,7 @@ def _launch_train(
     run_tag: str | None = None,
     seed_tag: str | None = None,
     spawn_larger: bool = True,
+    main_process_port: int | None = None,
 ) -> dict:
     os.environ["DATASET_DIR"] = "/vol/data"
     os.environ["WANDB_MODE"] = "offline"
@@ -373,7 +456,13 @@ def _launch_train(
 
     try:
         summary = _train_eval_once(
-            ckpt_base, run_dir, run_name, n_override, n_rollout, seed_run_dir=seed_run_dir
+            ckpt_base,
+            run_dir,
+            run_name,
+            n_override,
+            n_rollout,
+            seed_run_dir=seed_run_dir,
+            main_process_port=main_process_port,
         )
     finally:
         stop_commit.set()
@@ -425,14 +514,10 @@ def _seed_checkpoints(run_dir: Path, source_run_dir: Path) -> None:
     print(f"Seeded epoch {best[0]} from {best[1]}", flush=True)
 
 
-def _train_eval_once(
-    ckpt_base: Path,
-    run_dir: Path,
-    run_name: str,
-    n_override: str,
-    n_rollout: int,
-    seed_run_dir: Path | None = None,
-) -> dict:
+_EVAL_LOCK = threading.Lock()
+
+
+def _prepare_features(n_rollout: int) -> None:
     # One download. Four accelerate processes would otherwise race on the hub cache.
     _run(
         [
@@ -455,6 +540,21 @@ def _train_eval_once(
         cwd=REPO_REMOTE,
     )
     volume.commit()
+
+
+def _train_eval_once(
+    ckpt_base: Path,
+    run_dir: Path,
+    run_name: str,
+    n_override: str,
+    n_rollout: int,
+    seed_run_dir: Path | None = None,
+    prepare_features: bool = True,
+    main_process_port: int | None = None,
+    wandb_dir: Path | None = None,
+) -> dict:
+    if prepare_features:
+        _prepare_features(n_rollout)
     # The exhaustive run wrote a partial checkpoint into this directory. Do not resume it.
     marker = ckpt_base / "fast_protocol.json"
     if run_dir.exists() and not marker.exists():
@@ -467,8 +567,7 @@ def _train_eval_once(
         print("Training already reached 50 epochs. Evaluating the saved checkpoint.", flush=True)
     else:
         n_gpu = _gpu_count()
-        _run(
-        [
+        launch = [
             "accelerate",
             "launch",
             "--num_processes",
@@ -479,6 +578,10 @@ def _train_eval_once(
             "no",
             "--dynamo_backend",
             "no",
+        ]
+        if main_process_port is not None:
+            launch += ["--main_process_port", str(main_process_port)]
+        launch += [
             "train.py",
             "--config-name",
             "train_local",
@@ -497,23 +600,29 @@ def _train_eval_once(
             "training.val_steps_per_epoch=200",
             "training.log_image_mosaics_to_wandb=false",
             "training.log_ground_truth_mosaic=false",
-        ],
-        cwd=REPO_REMOTE,
-    )
+        ]
+        child_env = None
+        if wandb_dir is not None:
+            wandb_dir.mkdir(parents=True, exist_ok=True)
+            child_env = os.environ.copy()
+            child_env["WANDB_DIR"] = str(wandb_dir)
+        print(f"{run_name} training on all {n_gpu} GPUs", flush=True)
+        _run(launch, cwd=REPO_REMOTE, env=child_env)
     volume.commit()
     out_json = ckpt_base / "sixcond.json"
-    if _eval_already_done(out_json):
-        print(f"Six-condition eval already complete at {out_json}. Skipping.", flush=True)
-    else:
-        _eval_six(ckpt_base, run_name)
-        plan_src = Path(REPO_REMOTE) / "plan_outputs"
-        plan_dest = ckpt_base / "plan_outputs"
-        if plan_src.is_dir():
-            subprocess.run(
-                ["cp", "-a", str(plan_src), str(plan_dest)],
-                check=False,
-            )
-    rates = json.loads(out_json.read_text())["rates"]
+    with _EVAL_LOCK:
+        if _eval_already_done(out_json):
+            print(f"Six-condition eval already complete at {out_json}. Skipping.", flush=True)
+        else:
+            _eval_six(ckpt_base, run_name)
+            plan_src = Path(REPO_REMOTE) / "plan_outputs"
+            plan_dest = ckpt_base / "plan_outputs"
+            if plan_src.is_dir():
+                subprocess.run(
+                    ["cp", "-a", str(plan_src), str(plan_dest)],
+                    check=False,
+                )
+        rates = json.loads(out_json.read_text())["rates"]
     summary = {
         "tag": run_name,
         "n_rollout": None if n_rollout < 0 else n_rollout,
