@@ -2,8 +2,9 @@
 
 n=1000 runs first. The default GPU job spawns n=5000 and the full set only
 when the six-condition mean success rate is above the previous DINO-Bisim
-n=1000 result (0.36, 0.36, 0.36, 0.32, 0.32, 0.30). The four-A100 job trains
-and evaluates n=1000, then n=5000, then the full set in that same container.
+n=1000 result (0.36, 0.36, 0.36, 0.32, 0.32, 0.30). The four-A100 variants
+train n=1000, n=5000, and the full set at the same time, each in its own
+checkpoint directory.
 
   modal run scripts/modal_pusht.py
 """
@@ -304,13 +305,8 @@ def train_and_eval_l4x4(n_rollout: int = 1000) -> dict:
     volumes={"/vol": volume},
 )
 def train_and_eval_a100x4(n_rollout: int = 1000) -> dict:
-    """384-d run on four A100s. n=1000 then n=5000 and the full set, same container."""
-    summary = _launch_a100x4(n_rollout)
-    if n_rollout == 1000:
-        print("n=1000 finished. Continuing in this container with n=5000 and n=full.", flush=True)
-        for larger in (5000, -1):
-            summary = _launch_a100x4(larger)
-    return summary
+    """One 384-d rollout cap on four A100s. Launch n=1000, n=5000, and full together."""
+    return _launch_a100x4(n_rollout)
 
 
 def _launch_a100x4(n_rollout: int) -> dict:
@@ -537,7 +533,10 @@ def main(variant: str = "default") -> None:
         "t4x4": train_and_eval_t4x4,
         "l4x4": train_and_eval_l4x4,
         "a100x4": train_and_eval_a100x4,
+        "a100x4-n5000": train_and_eval_a100x4,
+        "a100x4-nfull": train_and_eval_a100x4,
         "a10x4": train_and_eval_a10x4,
     }.get(variant, train_and_eval)
-    summary = fn.remote(1000)
+    n_rollout = {"a100x4-n5000": 5000, "a100x4-nfull": -1}.get(variant, 1000)
+    summary = fn.remote(n_rollout)
     print(json.dumps(summary, indent=2))
